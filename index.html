@@ -133,10 +133,10 @@
 
     <section class="hero">
       <div class="hero-label" id="monthLabel">2026年10月结余</div>
-      <div class="hero-amount" id="balance">¥-58.50</div>
+      <div class="hero-amount" id="balance">¥0.00</div>
       <div class="hero-grid">
         <div class="hero-stat"><span>本月收入</span><strong id="incomeTotal">¥0.00</strong></div>
-        <div class="hero-stat"><span>本月支出</span><strong id="expenseTotal">¥58.50</strong></div>
+        <div class="hero-stat"><span>本月支出</span><strong id="expenseTotal">¥0.00</strong></div>
       </div>
     </section>
 
@@ -161,26 +161,27 @@
 
       <section class="section" id="listSection">
         <div class="section-title"><h2>最近记录</h2><button id="showAllBtn">查看全部</button></div>
-        <div class="card list-card" id="transactionList"><article class="transaction"><div class="tx-icon">🍜</div><div class="tx-main"><div class="tx-name">餐饮 · 午餐</div><div class="tx-meta">10月31日 · 支出</div></div><div class="tx-right"><div class="tx-amount expense">-¥58.50</div><button class="delete-btn" data-delete="1793386615302-6e4ed5a4ab9558">删除</button></div></article></div>
+        <div class="card list-card" id="transactionList"><div class="empty"><span class="empty-icon">🧾</span><p>本月还没有记录<br>记下第一笔，账目就清楚了。</p></div></div>
       </section>
 
       <section class="section hidden" id="statsSection">
         <div class="section-title"><h2>统计</h2><span style="font-size:12px;color:var(--muted)">按月查看</span></div>
         <div class="card stat-card">
-          <div class="month-head"><strong id="statsMonth">2026年10月</strong><span id="statsCount">1 笔记录</span></div>
-          <div class="bars" id="bars"><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">1-5日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">6-10日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">11-15日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">16-20日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">21-25日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">26-30日</div></div><div class="bar-col"><div class="bar" style="height:82px" title="¥58.50"></div><div class="bar-label">31-31日</div></div></div>
-          <div class="breakdown" id="breakdown"><div class="break-row"><span class="break-dot" style="background:#5b5ce2"></span><span>餐饮</span><strong>¥58.50</strong></div></div>
+          <div class="month-head"><strong id="statsMonth">2026年10月</strong><span id="statsCount">0 笔记录</span></div>
+          <div class="bars" id="bars"><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">1-5日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">6-10日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">11-15日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">16-20日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">21-25日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">26-30日</div></div><div class="bar-col"><div class="bar" style="height:4px" title="¥0.00"></div><div class="bar-label">31-31日</div></div></div>
+          <div class="breakdown" id="breakdown"><div class="empty" style="padding:14px 0 4px"><p>本月暂无支出分类统计</p></div></div>
         </div>
         <div class="card stat-card" style="margin-top:12px">
           <div class="section-title" style="margin-bottom:9px"><h2 style="font-size:15px">数据管理</h2></div>
-          <div class="tool-row"><button class="tool-btn" id="exportBtn2">导出 JSON</button><button class="tool-btn danger" id="clearBtn">清空记录</button></div>
-          <p class="subtle">记录保存在当前设备的浏览器中。导出 JSON 可以备份数据，换设备时可用于恢复。</p>
+          <div class="tool-row"><button class="tool-btn" id="importBtn">导入账单</button><button class="tool-btn" id="exportBtn2">导出 JSON</button><button class="tool-btn danger" id="clearBtn">清空记录</button></div>
+          <input id="importFile" type="file" accept=".csv,.txt,.json,application/json,text/csv" hidden="">
+          <p class="subtle">支持 CSV 或 JSON。支付宝、微信、银行账单导出后上传，自动识别日期、金额、收支、分类和备注；数据仍保存在当前设备浏览器中。</p>
         </div>
       </section>
 
       <section class="section hidden" id="allSection">
         <div class="section-title"><h2>全部记录</h2><button id="backBtn">返回首页</button></div>
-        <div class="card list-card" id="allList"><article class="transaction"><div class="tx-icon">🍜</div><div class="tx-main"><div class="tx-name">餐饮 · 午餐</div><div class="tx-meta">10月31日 · 支出</div></div><div class="tx-right"><div class="tx-amount expense">-¥58.50</div><button class="delete-btn" data-delete="1793386615302-6e4ed5a4ab9558">删除</button></div></article></div>
+        <div class="card list-card" id="allList"><div class="empty"><span class="empty-icon">🧾</span><p>暂无账单明细<br>记下第一笔，账目就清楚了。</p></div></div>
       </section>
     </div>
   </main>
@@ -315,6 +316,55 @@
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
       a.href = url; a.download = `轻账备份-${todayISO()}.json`; a.click(); URL.revokeObjectURL(url); showToast('已生成账单备份文件');
     }
+    function splitCsvLine(line) {
+      const cells = []; let cell = ''; let quoted = false;
+      for (let i=0; i<line.length; i++) {
+        const ch = line[i];
+        if (ch === '"' && line[i+1] === '"' && quoted) { cell += '"'; i++; continue; }
+        if (ch === '"') { quoted = !quoted; continue; }
+        if ((ch === ',' || ch === '\t' || ch === ';') && !quoted) { cells.push(cell.trim()); cell=''; continue; }
+        cell += ch;
+      }
+      cells.push(cell.trim()); return cells;
+    }
+    function normalizeHeader(value) { return String(value || '').replace(/^\uFEFF/, '').replace(/[\s（）()：:「」【】]/g,'').toLowerCase(); }
+    function parseImportedRows(text) {
+      const cleaned = text.replace(/^\uFEFF/, '').trim();
+      if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+        const parsed = JSON.parse(cleaned); return Array.isArray(parsed) ? parsed : (Array.isArray(parsed.transactions) ? parsed.transactions : []);
+      }
+      const lines = cleaned.split(/\r?\n/).filter(line => line.trim());
+      if (lines.length < 2) return [];
+      const headers = splitCsvLine(lines[0]);
+      return lines.slice(1).map(line => { const cells = splitCsvLine(line); const row={}; headers.forEach((h,i)=>row[h]=cells[i] || ''); return row; });
+    }
+    function parseImportedTransaction(row) {
+      const keys = Object.keys(row);
+      const get = candidates => { const key = keys.find(k => candidates.some(c => normalizeHeader(k).includes(c))); return key ? String(row[key] || '').trim() : ''; };
+      const rawDate = get(['日期','交易时间','时间','date','time']);
+      const rawAmount = get(['金额','交易金额','收支金额','amount','money']);
+      const rawType = get(['收支','类型','交易类型','type']);
+      const rawCategory = get(['分类','交易分类','category']);
+      const rawNote = get(['备注','商品说明','交易对方','说明','note','remark','description']);
+      const amountNumber = Number(rawAmount.replace(/[^0-9.+-]/g,''));
+      if (!Number.isFinite(amountNumber) || amountNumber === 0) return null;
+      const dateMatch = rawDate.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/) || rawDate.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+      const date = dateMatch ? `${dateMatch[1]}-${String(dateMatch[2]).padStart(2,'0')}-${String(dateMatch[3]).padStart(2,'0')}` : todayISO();
+      const isIncome = /收入|转入|入账|工资|退款|income|credit|in/i.test(rawType) || amountNumber > 0 && !/支出|消费|付款|转出|expense|debit|out/i.test(rawType);
+      return { id:`${Date.now()}-${Math.random().toString(16).slice(2)}`, type:isIncome?'income':'expense', category:rawCategory || '其他', amount:Math.abs(Math.round(amountNumber*100)/100), date, note:rawNote, createdAt:Date.now() };
+    }
+    async function importData(file) {
+      try {
+        const text = await file.text();
+        const rows = parseImportedRows(text);
+        const imported = rows.map(parseImportedTransaction).filter(Boolean);
+        const existing = new Set(transactions.map(t => `${t.date}|${t.type}|${t.amount}|${t.category}|${t.note||''}`));
+        const fresh = imported.filter(t => { const key=`${t.date}|${t.type}|${t.amount}|${t.category}|${t.note||''}`; if (existing.has(key)) return false; existing.add(key); return true; });
+        transactions = transactions.concat(fresh); saveTransactions(); renderAll();
+        showToast(fresh.length ? `已导入 ${fresh.length} 笔，重复记录已跳过` : '没有发现新的可导入记录');
+      } catch { showToast('文件格式无法识别，请使用 CSV 或 JSON'); }
+      $('importFile').value = '';
+    }
     function clearData() {
       if (!transactions.length) { showToast('当前没有可清空的记录'); return; }
       if (confirm('确定清空全部记账记录吗？此操作无法撤销。')) { transactions=[]; saveTransactions(); renderAll(); showToast('已清空全部记录'); }
@@ -335,6 +385,8 @@
     $('saveBtn').addEventListener('click', saveEntry);
     $('amount').addEventListener('keydown', e => { if (e.key === 'Enter') saveEntry(); });
     $('exportBtn').addEventListener('click', exportData); $('exportBtn2').addEventListener('click', exportData);
+    $('importBtn').addEventListener('click', () => $('importFile').click());
+    $('importFile').addEventListener('change', e => { const file = e.target.files?.[0]; if (file) importData(file); });
     $('clearBtn').addEventListener('click', clearData);
     $('showAllBtn').addEventListener('click', () => switchView('all'));
     $('backBtn').addEventListener('click', () => switchView('home'));
