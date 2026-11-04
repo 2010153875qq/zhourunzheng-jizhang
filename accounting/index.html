@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<title>我的记账本</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- ========== 记账 ========== -->
+<div class="tab" id="tab-book">
+<header class="top">
+  <button class="nav" id="prevM" aria-label="上个月">‹</button>
+  <div id="monthLabel" class="month"></div>
+  <button class="nav" id="nextM" aria-label="下个月">›</button>
+</header>
+<main>
+  <section class="card summary">
+    <div><span>收入</span><b id="sumIn" class="inc">0.00</b></div>
+    <div><span>支出</span><b id="sumOut" class="exp">0.00</b></div>
+    <div><span>结余</span><b id="sumBal">0.00</b></div>
+  </section>
+
+  <section class="card">
+    <h2 id="formTitle">记一笔</h2>
+    <form id="form" novalidate>
+      <div class="toggle" id="typeToggle">
+        <button type="button" data-type="expense" class="on">支出</button>
+        <button type="button" data-type="income">收入</button>
+      </div>
+      <input id="amount" type="text" inputmode="decimal" placeholder="金额（如 25.50）" autocomplete="off">
+      <div id="cats" class="cats"></div>
+      <div class="row">
+        <input id="date" type="date">
+        <input id="note" type="text" placeholder="备注（可选）" maxlength="50">
+      </div>
+      <div class="photo-row">
+        <label class="ghost photo-btn" for="photoInput" id="photoLabel">📷 添加照片</label>
+        <input type="file" id="photoInput" accept="image/*" class="file-hidden">
+        <img id="photoPreview" class="thumb hidden" alt="照片">
+        <button type="button" class="ghost hidden" id="photoRemove">移除照片</button>
+      </div>
+      <p id="err" class="err"></p>
+      <div class="row">
+        <button type="submit" class="primary" id="saveBtn">保存</button>
+        <button type="button" class="ghost hidden" id="cancelEdit">取消编辑</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>分类统计 <small id="breakType">（支出）</small></h2>
+    <div class="toggle small" id="breakToggle">
+      <button type="button" data-type="expense" class="on">支出</button>
+      <button type="button" data-type="income">收入</button>
+    </div>
+    <div id="breakdown"></div>
+  </section>
+
+  <section class="card">
+    <h2>本月明细</h2>
+    <div id="list"></div>
+  </section>
+
+  <section class="card">
+    <h2>数据备份</h2>
+    <label class="check"><input type="checkbox" id="incPhotos"> 包含照片</label>
+    <p class="hint" id="storageInfo"></p>
+    <div class="tools">
+      <button type="button" class="ghost" id="exportBtn">导出备份</button>
+      <button type="button" class="ghost" id="importBtn">导入备份</button>
+    </div>
+    <input type="file" id="importFile" accept=".json,application/json" class="file-hidden">
+    <textarea id="backupBox" class="hidden" rows="4" placeholder="备份内容（可粘贴后点“导入备份”）"></textarea>
+  </section>
+</main>
+</div>
+
+<!-- ========== 借贷 ========== -->
+<div class="tab hidden" id="tab-loan">
+<main>
+  <h1 class="title">借贷记录</h1>
+  <section class="card summary">
+    <div><span>别人欠我</span><b id="owedMe" class="inc">0.00</b></div>
+    <div><span>我欠别人</span><b id="iOwe" class="exp">0.00</b></div>
+  </section>
+  <section class="card">
+    <h2>按人汇总（未还）</h2>
+    <div id="perPerson"></div>
+  </section>
+  <section class="card">
+    <h2 id="loanTitle">新增借贷</h2>
+    <form id="loanForm" novalidate>
+      <div class="toggle" id="dirToggle">
+        <button type="button" data-dir="out" class="on">借出（别人欠我）</button>
+        <button type="button" data-dir="in">借入（我欠别人）</button>
+      </div>
+      <input id="loanPerson" type="text" placeholder="对方姓名" maxlength="20">
+      <input id="loanAmount" type="text" inputmode="decimal" placeholder="金额" autocomplete="off">
+      <div class="row">
+        <input id="loanDate" type="date">
+        <input id="loanNote" type="text" placeholder="备注（可选）" maxlength="50">
+      </div>
+      <p id="loanErr" class="err"></p>
+      <div class="row">
+        <button type="submit" class="primary" id="loanSave">保存</button>
+        <button type="button" class="ghost hidden" id="loanCancel">取消编辑</button>
+      </div>
+    </form>
+  </section>
+  <section class="card">
+    <h2>全部记录</h2>
+    <div id="loanList"></div>
+  </section>
+</main>
+</div>
+
+<!-- ========== 导入 ========== -->
+<div class="tab hidden" id="tab-import">
+<main>
+  <h1 class="title">导入账单</h1>
+  <section class="card">
+    <p class="hint">支持支付宝、微信支付导出的账单（CSV），以及银行流水（CSV / Excel .xls .xlsx）。导入前可预览并勾选。</p>
+    <label class="primary file-btn" for="stmtFile">选择账单文件</label>
+    <input type="file" id="stmtFile" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="file-hidden">
+    <p id="impMsg" class="hint"></p>
+  </section>
+  <section class="card hidden" id="mapCard">
+    <h2>手动指定列</h2>
+    <p class="hint">未能识别格式，请选择表头所在行和对应列。金额为负数视为支出。</p>
+    <label class="lbl">表头行 <select id="mapHeader"></select></label>
+    <label class="lbl">日期列 <select id="mapDate"></select></label>
+    <label class="lbl">金额列 <select id="mapAmount"></select></label>
+    <label class="lbl">说明列 <select id="mapDesc"></select></label>
+    <button type="button" class="primary" id="mapApply">按此解析</button>
+  </section>
+  <section class="card hidden" id="previewCard">
+    <h2>预览 <small id="fmtName"></small></h2>
+    <p class="hint" id="previewStat"></p>
+    <div class="row">
+      <button type="button" class="ghost" id="selAll">全选</button>
+      <button type="button" class="ghost" id="selNone">全不选</button>
+    </div>
+    <div id="previewList"></div>
+    <button type="button" class="primary" id="impConfirm">导入选中记录</button>
+  </section>
+</main>
+</div>
+
+<nav class="tabbar">
+  <button type="button" data-tab="book" class="on">记账</button>
+  <button type="button" data-tab="loan">借贷</button>
+  <button type="button" data-tab="import">导入</button>
+</nav>
+
+<div id="modal" class="modal hidden"><img id="modalImg" alt="照片"><p>点击任意处关闭</p></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
