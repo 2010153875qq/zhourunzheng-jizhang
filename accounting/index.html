@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#FFE8D6">
+<meta name="description" content="本地记账本：快速记支出、搜索明细、月度分析、分类预算、账单导入和借贷。数据只存在这台设备上。">
 <title>我的记账本</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="dock-on">
 <!-- ========== 记账 ========== -->
 <div class="tab" id="tab-book">
 <div class="hero">
@@ -19,9 +20,9 @@
   </div>
 </div>
 <header class="top">
-  <button class="nav" id="prevM" aria-label="上个月">‹</button>
+  <button type="button" class="nav" id="prevM" aria-label="上个月">‹</button>
   <div id="monthLabel" class="month"></div>
-  <button class="nav" id="nextM" aria-label="下个月">›</button>
+  <button type="button" class="nav" id="nextM" aria-label="下个月">›</button>
 </header>
 <main>
   <section class="card summary" aria-label="本月汇总">
@@ -30,37 +31,64 @@
     <div><span>支出</span><b id="sumOut">0.00</b></div>
     <div class="divider" aria-hidden="true"></div>
     <div><span>结余</span><b id="sumBal">0.00</b></div>
+    <p class="sumdelta" id="sumDelta"></p>
   </section>
 
-  <section class="card">
+  <section class="card" id="entryCard">
     <h2 id="formTitle">✏️ 记一笔</h2>
     <form id="form" novalidate>
       <div class="toggle" id="typeToggle">
         <button type="button" data-type="expense" class="on">支出</button>
         <button type="button" data-type="income">收入</button>
       </div>
-      <input id="amount" type="text" inputmode="decimal" placeholder="金额（如 25.50）" autocomplete="off" aria-label="金额">
-      <div id="cats" class="cats" role="group" aria-label="分类"></div>
-      <div class="row">
-        <input id="date" type="date" aria-label="日期">
-        <input id="note" type="text" placeholder="备注（可选）" maxlength="50" aria-label="备注">
+      <input id="amount" type="text" inputmode="decimal" enterkeyhint="done" placeholder="金额（如 25.50）" autocomplete="off" aria-label="金额">
+      <div id="catBox">
+        <div id="recentRow" class="recent hidden"></div>
+        <div id="cats" class="cats" role="group" aria-label="分类"></div>
       </div>
-      <div class="photo-row">
-        <label class="ghost photo-btn" for="photoInput" id="photoLabel">📷 添加照片</label>
+      <div class="row entry-meta">
+        <input id="date" type="date" aria-label="日期">
+        <input id="note" type="text" placeholder="备注" maxlength="50" enterkeyhint="done" aria-label="备注">
+        <label class="ghost photo-mini" for="photoInput" id="photoLabel" aria-label="添加照片">📷</label>
         <input type="file" id="photoInput" accept="image/*" class="file-hidden">
+      </div>
+      <div class="photo-row" id="photoTools">
         <img id="photoPreview" class="thumb hidden" alt="照片预览">
         <button type="button" class="ghost hidden" id="photoRemove">移除照片</button>
       </div>
       <p id="err" class="err" role="alert"></p>
-      <div class="row">
-        <button type="submit" class="primary" id="saveBtn">保存</button>
-        <button type="button" class="ghost hidden" id="cancelEdit">取消编辑</button>
-      </div>
     </form>
   </section>
+  <div class="jumps">
+    <button type="button" data-jump="listCard">明细</button>
+    <button type="button" data-jump="analysisCard">分析</button>
+    <button type="button" data-jump="budgetCard">预算</button>
+  </div>
 
-  <section class="card">
-    <h2>📊 分类统计 <small id="breakType">（支出）</small></h2>
+  <section class="card" id="listCard">
+    <h2>📒 明细</h2>
+    <input id="q" type="search" placeholder="搜索备注、分类或金额" autocomplete="off" enterkeyhint="search" aria-label="搜索明细">
+    <div class="filters">
+      <select id="fType" aria-label="收支筛选">
+        <option value="">全部类型</option>
+        <option value="expense">支出</option>
+        <option value="income">收入</option>
+      </select>
+      <select id="fCat" aria-label="分类筛选"></select>
+      <select id="fMonth" aria-label="月份筛选"></select>
+    </div>
+    <p class="hint" id="filterMeta"></p>
+    <div id="list"></div>
+  </section>
+
+  <section class="card" id="analysisCard">
+    <h2>月度分析 <small id="analysisMonth"></small></h2>
+    <p class="brief" id="brief"></p>
+    <div class="cmp" id="cmp"></div>
+    <h3 class="subh">每日支出</h3>
+    <div id="calendar"></div>
+    <p class="hint" id="calHint">颜色越深，当天支出越多。没有颜色表示当天没有支出。</p>
+    <h3 class="subh">分类占比 <small id="breakType">支出</small></h3>
     <div class="toggle small" id="breakToggle">
       <button type="button" data-type="expense" class="on">支出</button>
       <button type="button" data-type="income">收入</button>
@@ -68,9 +96,14 @@
     <div id="breakdown"></div>
   </section>
 
-  <section class="card">
-    <h2>📒 本月明细</h2>
-    <div id="list"></div>
+  <section class="card" id="budgetCard">
+    <h2>分类预算 <small id="budgetMonth"></small></h2>
+    <p class="hint">限额按查看的月份单独保存。支出看剩余，收入目标只作对照，超出不会当成超支。</p>
+    <h3 class="subh">支出限额</h3>
+    <div id="budgetExp"></div>
+    <h3 class="subh">收入目标</h3>
+    <div id="budgetInc"></div>
+    <button type="button" class="ghost" id="copyBudget">复制上月限额</button>
   </section>
 
   <section class="card">
@@ -87,17 +120,23 @@
 </main>
 </div>
 
+<div class="dock" id="dock">
+  <button type="button" class="ghost hidden" id="cancelEdit">取消</button>
+  <button type="submit" form="form" class="primary" id="saveBtn">保存</button>
+</div>
+
 <!-- ========== 借贷 ========== -->
 <div class="tab hidden" id="tab-loan">
 <main>
   <h1 class="title"><span class="emoji" aria-hidden="true">🤝</span>借贷记录</h1>
   <section class="card summary loan-summary" aria-label="借贷汇总">
-    <div><span>别人欠我</span><b id="owedMe">0.00</b></div>
+    <div><span>别人欠我</span><b id="owedMe">0.00</b><small id="owedMeta">未还 0 笔</small></div>
     <div class="divider" aria-hidden="true"></div>
-    <div><span>我欠别人</span><b id="iOwe">0.00</b></div>
+    <div><span>我欠别人</span><b id="iOwe">0.00</b><small id="oweMeta">未还 0 笔</small></div>
   </section>
+  <p class="netline" id="netLine"></p>
   <section class="card">
-    <h2>👥 按人汇总（未还）</h2>
+    <h2>👥 按人汇总</h2>
     <div id="perPerson"></div>
   </section>
   <section class="card">
@@ -144,7 +183,7 @@
   </section>
   <section class="card hidden" id="mapCard">
     <h2>手动指定列</h2>
-    <p class="hint">未能识别格式，请选择表头所在行和对应列。金额为负数视为支出。</p>
+    <p class="hint">未能识别或识别不准时，选择表头所在行和对应列。金额为负数视为支出。</p>
     <label class="lbl">表头行 <select id="mapHeader"></select></label>
     <label class="lbl">日期列 <select id="mapDate"></select></label>
     <label class="lbl">金额列 <select id="mapAmount"></select></label>
@@ -153,13 +192,19 @@
   </section>
   <section class="card hidden" id="previewCard">
     <h2>预览 <small id="fmtName"></small></h2>
+    <div class="pvstats" aria-label="导入预览汇总">
+      <div><span>已选</span><b id="pvN">0</b></div>
+      <div><span>收入</span><b id="pvIn" class="inc">0.00</b></div>
+      <div><span>支出</span><b id="pvOut" class="exp">0.00</b></div>
+    </div>
     <p class="hint" id="previewStat"></p>
     <div class="row">
       <button type="button" class="ghost" id="selAll">全选</button>
       <button type="button" class="ghost" id="selNone">全不选</button>
+      <button type="button" class="ghost" id="manualBtn">手动指定列</button>
     </div>
     <div id="previewList"></div>
-    <button type="button" class="primary" id="impConfirm">导入选中记录</button>
+    <button type="button" class="primary" id="impConfirm">导入选中的 0 条</button>
   </section>
 </main>
 </div>
@@ -173,6 +218,7 @@
 <div id="modal" class="modal hidden" role="dialog" aria-label="查看照片"><img id="modalImg" alt="照片"><p>点击任意处关闭</p></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
+<script src="logic.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="app.js"></script>
 </body>

@@ -1,30 +1,19 @@
 (function () {
   'use strict';
-  var KEY = 'jizhang_v1';
-  var PHOTO = KEY + '_photo_';
-  var PRESET = {
-    expense: ['餐饮', '交通', '购物', '娱乐', '居住', '医疗', '教育', '其他'],
-    income: ['工资', '奖金', '理财', '红包', '其他']
-  };
+  if (!window.JZ) { alert('记账脚本没有加载完整'); return; }
+  var JZ = window.JZ;
+  var KEY = JZ.KEY;
+  var PHOTO = JZ.PHOTO_PREFIX;
+
   function $(id) { return document.getElementById(id); }
-  function pad(n) { return n < 10 ? '0' + n : '' + n; }
-  function today() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
-  function fmt(c) { return (c / 100).toFixed(2); }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + JZ.pad(d.getMonth() + 1) + '-' + JZ.pad(d.getDate()); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-  function show(el, on) { el.classList[on ? 'remove' : 'add']('hidden'); }
+  function show(el, on) { if (el) el.classList[on ? 'remove' : 'add']('hidden'); }
   function isQuota(e) { return e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014); }
   var QUOTA_MSG = '手机浏览器存储空间已满（约5MB），无法保存。请删除部分照片或导出备份后清理旧记录。';
-
-  var CAT_ICON = {
-    '餐饮': '🍜', '交通': '🚌', '购物': '🛍️', '娱乐': '🎬', '居住': '🏠',
-    '医疗': '💊', '教育': '📚', '其他': '✨', '工资': '💼', '奖金': '🎁',
-    '理财': '📈', '红包': '🧧'
-  };
-  function catIcon(c) { return CAT_ICON[c] || '⭐'; }
   function emptyHTML(kind, msg, sub) {
-    var src = 'assets/empty-' + kind + '.svg';
-    return '<div class="empty"><img src="' + src + '" alt=""><div class="msg">' + msg + '</div><div class="sub">' + sub + '</div></div>';
+    return '<div class="empty"><img src="assets/empty-' + kind + '.svg" alt=""><div class="msg">' + msg + '</div><div class="sub">' + sub + '</div></div>';
   }
   var toastTimer = null;
   function toast(msg, ok) {
@@ -34,29 +23,20 @@
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.className = ''; }, 1800);
   }
-
-  // 金额字符串 -> 分（整数），用户输入校验：正数，最多两位小数
-  function userCents(v) {
-    v = String(v).replace(/\s/g, '').replace('，', '.');
-    if (!/^\d+(\.\d{1,2})?$/.test(v) || parseFloat(v) <= 0 || parseFloat(v) > 99999999) return null;
-    var p = v.split('.');
-    return parseInt(p[0], 10) * 100 + (p[1] ? parseInt((p[1] + '0').slice(0, 2), 10) : 0);
+  function closestAttr(node, name, stop) {
+    while (node && node !== stop) {
+      if (node.getAttribute && node.getAttribute(name) != null) return node;
+      node = node.parentNode;
+    }
+    return null;
   }
 
-  // ---------- 数据 ----------
-  function normalize(d) {
-    if (!d || !(d.entries instanceof Array)) throw new Error('bad');
-    d.custom = d.custom || {}; d.custom.expense = d.custom.expense || []; d.custom.income = d.custom.income || [];
-    d.loans = d.loans instanceof Array ? d.loans : [];
-    d.version = 2;
-    return d;
-  }
-  function blank() { return normalize({ entries: [] }); }
+  function blank() { return JZ.normalize({ entries: [] }); }
   function load() {
     var raw;
     try { raw = window.localStorage.getItem(KEY); } catch (e) { return blank(); }
     if (!raw) return blank();
-    try { return normalize(JSON.parse(raw)); }
+    try { return JZ.normalize(JSON.parse(raw)); }
     catch (e) {
       try { window.localStorage.setItem(KEY + '_corrupt_' + Date.now(), raw); } catch (e2) {}
       alert('本地数据读取失败，已备份原数据并重置。');
@@ -74,106 +54,243 @@
     catch (e) { alert(isQuota(e) ? QUOTA_MSG : '照片保存失败'); return false; }
   }
   function delPhoto(id) { try { window.localStorage.removeItem(PHOTO + id); } catch (e) {} }
-  function storageUsed() {
-    var n = 0, total = 0;
+  function ownStorage() {
+    var bytes = 0, photos = 0, i, k, v;
     try {
-      for (var i = 0; i < localStorage.length; i++) {
-        var k = localStorage.key(i), v = localStorage.getItem(k) || '';
-        total += (k.length + v.length) * 2; // UTF-16 约2字节/字符
-        if (k.indexOf(PHOTO) === 0) n++;
+      for (i = 0; i < localStorage.length; i++) {
+        k = localStorage.key(i);
+        if (!JZ.isOwnStorageKey(k)) continue;
+        v = localStorage.getItem(k) || '';
+        bytes += (k.length + v.length) * 2;
+        if (k.indexOf(PHOTO) === 0) photos++;
       }
     } catch (e) {}
-    return { bytes: total, photos: n };
+    return { bytes: bytes, photos: photos };
   }
   function kb(b) { return b > 1048576 ? (b / 1048576).toFixed(2) + ' MB' : Math.round(b / 1024) + ' KB'; }
 
-  // ---------- 标签页 ----------
   var tabbar = document.querySelector('.tabbar');
-  tabbar.addEventListener('click', function (ev) {
-    var btn = ev.target;
-    while (btn && btn !== tabbar && (!btn.getAttribute || !btn.getAttribute('data-tab'))) btn = btn.parentNode;
-    if (!btn || btn === tabbar) return;
-    var t = btn.getAttribute('data-tab'); if (!t) return;
-    var bs = tabbar.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++) {
-      var on = bs[i].getAttribute('data-tab') === t;
+  function showTab(t) {
+    var bs = tabbar.querySelectorAll('button'), i, on;
+    for (i = 0; i < bs.length; i++) {
+      on = bs[i].getAttribute('data-tab') === t;
       bs[i].className = on ? 'on' : '';
       bs[i].setAttribute('aria-selected', on ? 'true' : 'false');
     }
-    show($('tab-book'), t === 'book'); show($('tab-loan'), t === 'loan'); show($('tab-import'), t === 'import');
+    show($('tab-book'), t === 'book');
+    show($('tab-loan'), t === 'loan');
+    show($('tab-import'), t === 'import');
+    document.body.classList[t === 'book' ? 'add' : 'remove']('dock-on');
     window.scrollTo(0, 0);
-    if (t === 'book') render(); if (t === 'loan') renderLoans();
+    if (t === 'book') render();
+    if (t === 'loan') renderLoans();
+  }
+  tabbar.addEventListener('click', function (ev) {
+    var btn = closestAttr(ev.target, 'data-tab', tabbar);
+    if (!btn) return;
+    showTab(btn.getAttribute('data-tab'));
   });
 
-  // ---------- 记账 ----------
   var now = new Date();
   var state = { y: now.getFullYear(), m: now.getMonth() + 1, type: 'expense', cat: null, editId: null, breakType: 'expense', photo: undefined };
-  function monthKey() { return state.y + '-' + pad(state.m); }
-  function cats(t) { return PRESET[t].concat(db.custom[t]); }
-
+  var filter = { text: '', type: '', cat: '', month: '__view__' };
+  function monthKey() { return JZ.monthKey(state.y, state.m); }
+  function setToggle(box, attr, val) {
+    var bs = box.querySelectorAll('button'), i;
+    for (i = 0; i < bs.length; i++) bs[i].className = bs[i].getAttribute(attr) === val ? 'on' : '';
+  }
+  function catBtnClass(c) {
+    var known = JZ.PRESET.expense.concat(JZ.PRESET.income);
+    return 'cat' + (known.indexOf(c) >= 0 ? ' cat-' + c : '') + (c === state.cat ? ' on' : '');
+  }
   function renderCats() {
-    var list = cats(state.type), h = '';
+    var list = JZ.categories(db, state.type);
     if (list.indexOf(state.cat) < 0) state.cat = list[0];
-    for (var i = 0; i < list.length; i++) {
-      var c = list[i], custom = db.custom[state.type].indexOf(c) >= 0;
-      h += '<button type="button" class="cat cat-' + esc(c) + (c === state.cat ? ' on' : '') + '" data-cat="' + esc(c) + '"><span class="ico" aria-hidden="true">' + catIcon(c) + '</span>' + esc(c) +
-        (custom ? '<span class="x" data-del="' + esc(c) + '">×</span>' : '') + '</button>';
+    var recent = JZ.recentCategories(db.entries, state.type, 4), rh = '', i, c, custom, h = '';
+    if (recent.length) {
+      rh = '<span class="recent-label">最近</span>';
+      for (i = 0; i < recent.length; i++) {
+        c = recent[i];
+        rh += '<button type="button" class="' + catBtnClass(c) + '" data-cat="' + esc(c) + '"><span class="ico" aria-hidden="true">' + JZ.catIcon(c) + '</span>' + esc(c) + '</button>';
+      }
+    }
+    $('recentRow').innerHTML = rh;
+    show($('recentRow'), recent.length > 0);
+    for (i = 0; i < list.length; i++) {
+      c = list[i];
+      custom = db.custom[state.type].indexOf(c) >= 0;
+      h += '<button type="button" class="' + catBtnClass(c) + '" data-cat="' + esc(c) + '"><span class="ico" aria-hidden="true">' + JZ.catIcon(c) + '</span>' + esc(c) +
+        (custom ? '<span class="x" data-del="' + esc(c) + '" aria-label="删除分类">×</span>' : '') + '</button>';
     }
     h += '<button type="button" class="cat add" data-add="1"><span class="ico">＋</span>自定义</button>';
     $('cats').innerHTML = h;
   }
-  function setToggle(box, attr, val) {
-    var bs = box.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++) bs[i].className = bs[i].getAttribute(attr) === val ? 'on' : '';
-  }
-  function setType(t) {
-    state.type = t; setToggle($('typeToggle'), 'data-type', t); renderCats();
+  function setType(t, keepCat) {
+    state.type = t;
+    var list = JZ.categories(db, t);
+    if (!keepCat || list.indexOf(state.cat) < 0) {
+      var recent = JZ.recentCategories(db.entries, t, 1);
+      state.cat = recent[0] || list[0];
+    }
+    setToggle($('typeToggle'), 'data-type', t);
     var box = $('typeToggle');
-    if (box) { if (t === 'income') box.classList.add('income-on'); else box.classList.remove('income-on'); }
+    if (t === 'income') box.classList.add('income-on'); else box.classList.remove('income-on');
+    renderCats();
   }
 
-  function monthEntries() {
-    var k = monthKey();
-    return db.entries.filter(function (e) { return e.date.slice(0, 7) === k; });
+  function catOptions(type, sel) {
+    var list = JZ.categories(db, type).slice();
+    if (sel && list.indexOf(sel) < 0) list.push(sel);
+    return list.map(function (c) {
+      return '<option value="' + esc(c) + '"' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>';
+    }).join('');
+  }
+  function namesForFilter() {
+    var types = filter.type ? [filter.type] : ['expense', 'income'];
+    var names = [], ti, list, i, e;
+    for (ti = 0; ti < types.length; ti++) {
+      list = JZ.categories(db, types[ti]);
+      for (i = 0; i < list.length; i++) if (names.indexOf(list[i]) < 0) names.push(list[i]);
+    }
+    for (i = 0; i < db.entries.length; i++) {
+      e = db.entries[i];
+      if (!e || (filter.type && e.type !== filter.type)) continue;
+      if (e.cat && names.indexOf(e.cat) < 0) names.push(e.cat);
+    }
+    return names;
+  }
+  function fillFilters() {
+    $('fType').value = filter.type;
+    var names = namesForFilter(), h = '<option value="">全部分类</option>', i;
+    for (i = 0; i < names.length; i++) h += '<option value="' + esc(names[i]) + '">' + esc(names[i]) + '</option>';
+    $('fCat').innerHTML = h;
+    if (names.indexOf(filter.cat) < 0) filter.cat = '';
+    $('fCat').value = filter.cat;
+    var months = JZ.listMonths(db.entries), mk = monthKey();
+    if (months.indexOf(mk) < 0) months.push(mk);
+    months.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
+    var mh = '<option value="__view__">当前月（' + state.y + '年' + state.m + '月）</option><option value="__all__">全部月份</option>';
+    for (i = 0; i < months.length; i++) mh += '<option value="' + months[i] + '">' + months[i].slice(0, 4) + '年' + (+months[i].slice(5)) + '月</option>';
+    $('fMonth').innerHTML = mh;
+    if (['__view__', '__all__'].indexOf(filter.month) < 0 && months.indexOf(filter.month) < 0) filter.month = '__view__';
+    $('fMonth').value = filter.month;
+    if (document.activeElement !== $('q')) $('q').value = filter.text;
+  }
+  function resolvedMonth() {
+    if (filter.month === '__all__') return '';
+    if (filter.month === '__view__') return monthKey();
+    return filter.month;
+  }
+  function renderList() {
+    var month = resolvedMonth();
+    var items = JZ.filterEntries(db.entries, { text: filter.text, type: filter.type, cat: filter.cat, month: month });
+    items.sort(function (a, b) {
+      if (a.date !== b.date) {
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date < b.date ? 1 : -1;
+      }
+      return (b.ts || 0) - (a.ts || 0);
+    });
+    var inc = 0, exp = 0, i;
+    for (i = 0; i < items.length; i++) { if (items[i].type === 'income') inc += items[i].cents || 0; else exp += items[i].cents || 0; }
+    var narrowed = !!(String(filter.text || '').replace(/^\s+|\s+$/g, '') || filter.type || filter.cat || filter.month !== '__view__');
+    var scope = filter.month === '__all__' ? '全部月份' : (month ? month.slice(0, 4) + '年' + (+month.slice(5)) + '月' : '');
+    $('filterMeta').textContent = (scope ? scope + ' · ' : '') + '显示 ' + items.length + ' 笔 · 收入 ' + JZ.fmt(inc) + ' · 支出 ' + JZ.fmt(exp);
+    if (!items.length) {
+      $('list').innerHTML = narrowed
+        ? '<div class="empty"><div class="msg">没有符合条件的记录</div><div class="sub">换个关键词、分类或月份试试</div></div>'
+        : emptyHTML('book', '这个月还是空白的', '先记一笔支出，保存按钮一直在下面');
+      return;
+    }
+    var lh = '', cur = null, e, isIn, ph, day;
+    for (i = 0; i < items.length; i++) {
+      e = items[i];
+      day = e.date || '';
+      if (day !== cur) {
+        cur = day;
+        lh += '<div class="day"><span>' + (e.date ? e.date.slice(5).replace('-', '月') + '日' : '日期不详') + '</span></div>';
+      }
+      isIn = e.type === 'income';
+      ph = e.photo ? getPhoto(e.id) : null;
+      lh += '<div class="item">' + (ph ? '<button type="button" class="pic" data-view="' + esc(e.id) + '"><img src="' + ph + '" alt="照片"></button>' : '') +
+        '<div class="info"><div class="c"><span class="dot" aria-hidden="true">' + JZ.catIcon(e.cat) + '</span><select class="inline-cat" data-cat-for="' + esc(e.id) + '" aria-label="修改分类">' + catOptions(e.type, e.cat) + '</select></div>' +
+        (e.note ? '<div class="n">' + esc(e.note) + '</div>' : '') + '</div><span class="amt ' + (isIn ? 'inc' : 'exp') + '">' + (isIn ? '+' : '-') + JZ.fmt(e.cents) + '</span>' +
+        '<button type="button" class="icon" data-edit="' + esc(e.id) + '">编辑</button><button type="button" class="icon" data-rm="' + esc(e.id) + '">删除</button></div>';
+    }
+    $('list').innerHTML = lh;
+  }
+  function renderBudget(type, id) {
+    var rows = JZ.budgetRows(db, db.entries, monthKey(), type, JZ.categories(db, type));
+    var h = '', i, row, width, cls;
+    for (i = 0; i < rows.length; i++) {
+      row = rows[i];
+      width = row.limit ? Math.min(100, Math.round(row.ratio * 1000) / 10) : 0;
+      cls = 'bud' + (row.tone === 'income' ? ' income' : '') + (row.tone === 'expense-over' ? ' over' : '');
+      h += '<div class="' + cls + '"><div class="bud-top"><span class="bud-name">' + JZ.catIcon(row.cat) + ' ' + esc(row.cat) + '</span>' +
+        '<input class="limit-input" inputmode="decimal" autocomplete="off" data-blimit="' + type + '" data-bcat="' + esc(row.cat) + '" value="' + (row.limit ? JZ.fmt(row.limit) : '') + '" placeholder="' + (type === 'income' ? '月目标' : '月限额') + '" aria-label="' + esc(row.cat + (type === 'income' ? '月目标' : '月限额')) + '"></div>' +
+        '<div class="bud-meta">' + esc(row.label) + '</div>';
+      if (row.limit) {
+        h += '<div class="bar' + (row.tone === 'income' ? ' income' : '') + (row.tone === 'expense-over' ? ' over' : '') + '"><div class="track"><div class="fill" style="width:' + width + '%"></div></div></div>';
+      }
+      h += '</div>';
+    }
+    $(id).innerHTML = h;
+  }
+  function renderAnalysis(brief) {
+    $('analysisMonth').textContent = JZ.monthName(state.y, state.m);
+    $('brief').textContent = brief.text;
+    var bal = brief.totals.balance, prevBal = brief.prevTotals.balance;
+    $('cmp').innerHTML =
+      '<div><span>支出</span><b>' + JZ.fmt(brief.totals.expense) + '</b><em>' + esc(JZ.changeClause('支出', brief.totals.expense, brief.prevTotals.expense).slice(2)) + '</em></div>' +
+      '<div><span>收入</span><b>' + JZ.fmt(brief.totals.income) + '</b><em>' + esc(JZ.changeClause('收入', brief.totals.income, brief.prevTotals.income).slice(2)) + '</em></div>' +
+      '<div><span>结余</span><b>' + (bal < 0 ? '-' : '') + JZ.fmt(bal) + '</b><em>' + esc(JZ.changeClause('结余', bal, prevBal).slice(2)) + '</em></div>';
+    var cal = JZ.calendarCells(state.y, state.m, brief.daily.days);
+    var html = '<div class="cal">', w = ['一', '二', '三', '四', '五', '六', '日'], i, cellDay, lv, iso, label;
+    for (i = 0; i < w.length; i++) html += '<div class="hd">' + w[i] + '</div>';
+    var todayStr = today();
+    for (i = 0; i < cal.cells.length; i++) {
+      cellDay = cal.cells[i];
+      if (!cellDay) { html += '<div class="cell blank"></div>'; continue; }
+      lv = JZ.heatLevel(cellDay.cents, brief.daily.max);
+      iso = monthKey() + '-' + JZ.pad(cellDay.day);
+      label = JZ.formatMD(iso) + (cellDay.cents ? ' 支出 ' + JZ.money(cellDay.cents) : ' 无支出');
+      html += '<div class="cell lv' + lv + (iso === todayStr ? ' today' : '') + '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' + cellDay.day + '</div>';
+    }
+    $('calendar').innerHTML = html + '</div>';
+    var rows = state.breakType === 'income' ? brief.incomeCats : brief.expenseCats;
+    $('breakType').textContent = state.breakType === 'income' ? '收入' : '支出';
+    var bh = '', r;
+    for (i = 0; i < rows.length; i++) {
+      r = rows[i];
+      bh += '<div class="bar ' + state.breakType + '"><div class="t"><span>' + esc(r.cat) + ' ' + r.pct.toFixed(1) + '%</span><span>¥' + JZ.fmt(r.cents) + '</span></div><div class="track"><div class="fill" style="width:' + Math.min(100, r.pct).toFixed(1) + '%"></div></div></div>';
+    }
+    $('breakdown').innerHTML = bh || emptyHTML('book', '还没有' + (state.breakType === 'income' ? '收入' : '支出'), '记一笔就能看到分类占比');
   }
   function render() {
+    var brief = JZ.monthBrief(db.entries, state.y, state.m);
     $('monthLabel').textContent = state.y + '年' + state.m + '月';
-    var es = monthEntries(), inc = 0, exp = 0;
-    es.forEach(function (e) { if (e.type === 'income') inc += e.cents; else exp += e.cents; });
-    $('sumIn').textContent = fmt(inc); $('sumOut').textContent = fmt(exp);
-    var bal = inc - exp;
-    $('sumBal').textContent = (bal < 0 ? '-' : '') + fmt(Math.abs(bal));
-    $('sumBal').className = bal < 0 ? 'exp' : '';
-    var bt = state.breakType, totals = {}, total = 0;
-    es.forEach(function (e) { if (e.type === bt) { totals[e.cat] = (totals[e.cat] || 0) + e.cents; total += e.cents; } });
-    var keys = Object.keys(totals).sort(function (a, b) { return totals[b] - totals[a]; });
-    $('breakType').textContent = bt === 'income' ? '（收入）' : '（支出）';
-    var bh = '';
-    keys.forEach(function (k) {
-      var p = total ? totals[k] / total * 100 : 0;
-      bh += '<div class="bar ' + bt + '"><div class="t"><span>' + esc(k) + ' ' + p.toFixed(1) + '%</span><span>¥' + fmt(totals[k]) +
-        '</span></div><div class="track"><div class="fill" style="width:' + p.toFixed(1) + '%"></div></div></div>';
-    });
-    $('breakdown').innerHTML = bh || emptyHTML('book', '还没有' + (bt === 'income' ? '收入' : '支出'), '记一笔就能看到分类占比啦');
-    es.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts; });
-    var lh = '', cur = null;
-    es.forEach(function (e) {
-      if (e.date !== cur) { cur = e.date; lh += '<div class="day"><span>' + e.date.slice(5).replace('-', '月') + '日</span></div>'; }
-      var isIn = e.type === 'income', ph = e.photo ? getPhoto(e.id) : null;
-      lh += '<div class="item">' + (ph ? '<button class="pic" data-view="' + e.id + '"><img src="' + ph + '" alt="照片" data-view="' + e.id + '"></button>' : '') +
-        '<div class="info"><div class="c"><span class="dot" aria-hidden="true">' + catIcon(e.cat) + '</span>' + esc(e.cat) + '</div>' + (e.note ? '<div class="n">' + esc(e.note) + '</div>' : '') +
-        '</div><span class="amt ' + (isIn ? 'inc' : 'exp') + '">' + (isIn ? '+' : '-') + fmt(e.cents) + '</span>' +
-        '<button class="icon" data-edit="' + e.id + '" aria-label="编辑">编辑</button><button class="icon" data-rm="' + e.id + '" aria-label="删除">删除</button></div>';
-    });
-    $('list').innerHTML = lh || emptyHTML('book', '本月还是空白的', '记一笔，开启本月账本吧');
-    var s = storageUsed();
-    $('storageInfo').textContent = '已用存储约 ' + kb(s.bytes) + '（含 ' + s.photos + ' 张照片），浏览器上限通常约 5 MB。';
+    $('sumIn').textContent = JZ.fmt(brief.totals.income);
+    $('sumOut').textContent = JZ.fmt(brief.totals.expense);
+    $('sumBal').textContent = (brief.totals.balance < 0 ? '-' : '') + JZ.fmt(brief.totals.balance);
+    $('sumDelta').textContent = JZ.heroLine(brief);
+    renderCats();
+    fillFilters();
+    renderList();
+    renderAnalysis(brief);
+    $('budgetMonth').textContent = JZ.monthName(state.y, state.m);
+    renderBudget('expense', 'budgetExp');
+    renderBudget('income', 'budgetInc');
+    var prev = JZ.shiftMonth(state.y, state.m, -1);
+    $('copyBudget').disabled = !JZ.monthHasBudget(db, JZ.monthKey(prev.y, prev.m));
+    var s = ownStorage();
+    $('storageInfo').textContent = '本机只保存这份记账本（' + KEY + '），约 ' + kb(s.bytes) + '（照片 ' + s.photos + ' 张）。记账、借贷、预算、自定义分类和照片都在其中，不会改写其他页面的数据。浏览器单站上限通常约 5 MB。';
   }
 
   function setPhotoPreview(src) {
     var img = $('photoPreview');
-    if (src) { img.src = src; show(img, true); show($('photoRemove'), true); $('photoLabel').textContent = '📷 更换照片'; }
-    else { img.removeAttribute('src'); show(img, false); show($('photoRemove'), false); $('photoLabel').textContent = '📷 添加照片'; }
+    if (src) { img.src = src; show(img, true); show($('photoRemove'), true); $('photoLabel').textContent = '换'; $('photoLabel').setAttribute('aria-label', '更换照片'); }
+    else { img.removeAttribute('src'); show(img, false); show($('photoRemove'), false); $('photoLabel').textContent = '📷'; $('photoLabel').setAttribute('aria-label', '添加照片'); }
   }
   function resetForm() {
     state.editId = null; state.photo = undefined;
@@ -185,8 +302,8 @@
 
   $('form').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    var cents = userCents($('amount').value);
-    if (cents === null) { $('err').textContent = '请输入大于0的金额，最多两位小数'; return; }
+    var cents = JZ.userCents($('amount').value);
+    if (cents === null) { $('err').textContent = '请输入大于0的金额，最多两位小数'; toast('请输入大于0的金额'); $('amount').focus(); return; }
     var d = $('date').value || today();
     var e = { type: state.type, cents: cents, cat: state.cat, date: d, note: $('note').value.trim() };
     var i = state.editId ? find(db.entries, state.editId) : -1, old = i >= 0 ? db.entries[i] : null;
@@ -194,60 +311,125 @@
     if (state.photo === null) { delPhoto(e.id); e.photo = false; }
     else if (state.photo) { e.photo = setPhoto(e.id, state.photo) ? true : e.photo; }
     if (old) db.entries[i] = e; else db.entries.push(e);
-    save();
+    if (!save()) {
+      if (!old) db.entries.pop();
+      else db.entries[i] = old;
+      return;
+    }
+    var wasEdit = !!old;
     state.y = +d.slice(0, 4); state.m = +d.slice(5, 7);
     resetForm(); render();
-    toast(old ? '✏️ 已更新' : '🎉 记好啦', true);
+    toast(wasEdit ? '已更新' : '已记下', true);
+    if (!wasEdit) $('amount').focus();
   });
-  $('cancelEdit').addEventListener('click', resetForm);
-  $('typeToggle').addEventListener('click', function (ev) { var t = ev.target.getAttribute('data-type'); if (t) setType(t); });
-  $('cats').addEventListener('click', function (ev) {
-    var t = ev.target, del = t.getAttribute('data-del');
+  $('cancelEdit').addEventListener('click', function () { resetForm(); renderCats(); });
+  $('typeToggle').addEventListener('click', function (ev) {
+    var t = ev.target.getAttribute && ev.target.getAttribute('data-type');
+    if (t) setType(t, false);
+  });
+  $('catBox').addEventListener('click', function (ev) {
+    var del = closestAttr(ev.target, 'data-del', $('catBox'));
     if (del) {
-      if (confirm('删除自定义分类「' + del + '」？（已有记录不受影响）')) {
-        db.custom[state.type] = db.custom[state.type].filter(function (c) { return c !== del; }); save(); renderCats();
+      var name = del.getAttribute('data-del');
+      if (confirm('删除自定义分类「' + name + '」？（已有记录不受影响）')) {
+        db.custom[state.type] = db.custom[state.type].filter(function (c) { return c !== name; });
+        save(); renderCats();
       }
       return;
     }
-    if (t.getAttribute('data-add')) {
+    var add = closestAttr(ev.target, 'data-add', $('catBox'));
+    if (add) {
       var n = prompt('新分类名称：');
       if (n === null) return; n = n.trim().slice(0, 8);
       if (!n) return;
-      if (cats(state.type).indexOf(n) >= 0) { alert('分类已存在'); return; }
+      if (JZ.categories(db, state.type).indexOf(n) >= 0) { alert('分类已存在'); return; }
       db.custom[state.type].push(n); save(); state.cat = n; renderCats(); return;
     }
-    var c = t.getAttribute('data-cat'); if (c) { state.cat = c; renderCats(); }
+    var cat = closestAttr(ev.target, 'data-cat', $('catBox'));
+    if (cat) { state.cat = cat.getAttribute('data-cat'); renderCats(); }
   });
   $('breakToggle').addEventListener('click', function (ev) {
-    var t = ev.target.getAttribute('data-type'); if (!t) return;
+    var t = ev.target.getAttribute && ev.target.getAttribute('data-type');
+    if (!t) return;
     state.breakType = t; setToggle(this, 'data-type', t); render();
   });
+  $('list').addEventListener('change', function (ev) {
+    var id = ev.target.getAttribute('data-cat-for');
+    if (!id) return;
+    var i = find(db.entries, id);
+    if (i < 0) return;
+    db.entries[i].cat = ev.target.value;
+    if (state.editId === id) state.cat = ev.target.value;
+    if (!save()) { render(); return; }
+    render();
+  });
   $('list').addEventListener('click', function (ev) {
-    var rm = ev.target.getAttribute('data-rm'), ed = ev.target.getAttribute('data-edit'), vw = ev.target.getAttribute('data-view'), i;
-    if (vw) { openModal(getPhoto(vw)); return; }
+    var view = closestAttr(ev.target, 'data-view', $('list'));
+    var rm = closestAttr(ev.target, 'data-rm', $('list'));
+    var ed = closestAttr(ev.target, 'data-edit', $('list'));
+    var i;
+    if (view) { openModal(getPhoto(view.getAttribute('data-view'))); return; }
     if (rm && confirm('确定删除这条记录？')) {
-      i = find(db.entries, rm);
-      if (i >= 0) { db.entries.splice(i, 1); delPhoto(rm); save(); if (state.editId === rm) resetForm(); render(); }
+      var id = rm.getAttribute('data-rm');
+      i = find(db.entries, id);
+      if (i >= 0) { db.entries.splice(i, 1); delPhoto(id); save(); if (state.editId === id) resetForm(); render(); }
     }
     if (ed) {
-      i = find(db.entries, ed); if (i < 0) return; var e = db.entries[i];
+      i = find(db.entries, ed.getAttribute('data-edit')); if (i < 0) return;
+      var e = db.entries[i];
       resetForm();
-      state.editId = ed; state.cat = e.cat; setType(e.type);
-      $('amount').value = fmt(e.cents); $('date').value = e.date; $('note').value = e.note || '';
+      state.editId = e.id; state.cat = e.cat; setType(e.type, true);
+      $('amount').value = JZ.fmt(e.cents); $('date').value = e.date; $('note').value = e.note || '';
       setPhotoPreview(e.photo ? getPhoto(e.id) : null);
       $('formTitle').textContent = '✏️ 编辑记录'; $('saveBtn').textContent = '保存修改'; show($('cancelEdit'), true);
-      window.scrollTo(0, $('formTitle').offsetTop - 10);
+      if ($('formTitle').scrollIntoView) $('formTitle').scrollIntoView();
     }
   });
-  function shift(n) { state.m += n; if (state.m < 1) { state.m = 12; state.y--; } if (state.m > 12) { state.m = 1; state.y++; } render(); }
+  function shift(n) {
+    var next = JZ.shiftMonth(state.y, state.m, n);
+    state.y = next.y; state.m = next.m; render();
+  }
   $('prevM').addEventListener('click', function () { shift(-1); });
   $('nextM').addEventListener('click', function () { shift(1); });
+  $('q').addEventListener('input', function () { filter.text = this.value; renderList(); });
+  $('fType').addEventListener('change', function () {
+    filter.type = this.value;
+    if (namesForFilter().indexOf(filter.cat) < 0) filter.cat = '';
+    fillFilters(); renderList();
+  });
+  $('fCat').addEventListener('change', function () { filter.cat = this.value; renderList(); });
+  $('fMonth').addEventListener('change', function () { filter.month = this.value; renderList(); });
+  document.querySelector('.jumps').addEventListener('click', function (ev) {
+    var id = ev.target.getAttribute && ev.target.getAttribute('data-jump');
+    var el = id && $(id);
+    if (el && el.scrollIntoView) el.scrollIntoView();
+  });
+  $('budgetCard').addEventListener('change', function (ev) {
+    var t = ev.target, type = t.getAttribute('data-blimit'), cat = t.getAttribute('data-bcat'), raw, cents;
+    if (!type || !cat) return;
+    raw = String(t.value || '').replace(/^\s+|\s+$/g, '');
+    if (!raw || raw === '0' || raw === '0.0' || raw === '0.00') cents = 0;
+    else {
+      cents = JZ.userCents(raw);
+      if (cents === null) { toast('限额请填大于 0 的金额，最多两位小数'); render(); return; }
+    }
+    JZ.setMonthBudget(db, monthKey(), type, cat, cents);
+    if (!save()) return;
+    render();
+    toast(cents ? '已保存本月限额' : '已清除限额', true);
+  });
+  $('copyBudget').addEventListener('click', function () {
+    var prev = JZ.shiftMonth(state.y, state.m, -1);
+    var from = JZ.monthKey(prev.y, prev.m);
+    if (!JZ.monthHasBudget(db, from)) { toast('上月没有限额可复制'); return; }
+    if (!confirm('用' + JZ.monthName(prev.y, prev.m) + '的限额覆盖' + JZ.monthName(state.y, state.m) + '已填写的限额？')) return;
+    JZ.copyBudgets(db, from, monthKey());
+    if (!save()) return;
+    render(); toast('已复制上月限额', true);
+  });
 
-  // ---------- 照片 ----------
   function openModal(src) { if (!src) return; $('modalImg').src = src; show($('modal'), true); }
   $('modal').addEventListener('click', function () { show($('modal'), false); $('modalImg').removeAttribute('src'); });
-  // 压缩：最长边1024，JPEG 质量0.7起逐步降低，目标 <200KB
-  // 现代浏览器（Chrome 81+/iOS 13.4+）绘制 <img> 时会自动按 EXIF 方向旋转
   function compress(file, cb) {
     var url = (window.URL || window.webkitURL).createObjectURL(file);
     var img = new Image();
@@ -282,9 +464,11 @@
   $('photoRemove').addEventListener('click', function () { state.photo = null; setPhotoPreview(null); });
   $('photoPreview').addEventListener('click', function () { openModal(this.src); });
 
-  // ---------- 借贷 ----------
   var loan = { dir: 'out', editId: null };
-  $('dirToggle').addEventListener('click', function (ev) { var d = ev.target.getAttribute('data-dir'); if (d) { loan.dir = d; setToggle(this, 'data-dir', d); } });
+  $('dirToggle').addEventListener('click', function (ev) {
+    var d = ev.target.getAttribute && ev.target.getAttribute('data-dir');
+    if (d) { loan.dir = d; setToggle(this, 'data-dir', d); }
+  });
   function resetLoan() {
     loan.editId = null; $('loanPerson').value = ''; $('loanAmount').value = ''; $('loanNote').value = ''; $('loanDate').value = today();
     $('loanErr').textContent = ''; $('loanTitle').textContent = '➕ 新增借贷'; $('loanSave').textContent = '保存'; show($('loanCancel'), false);
@@ -292,42 +476,57 @@
   $('loanCancel').addEventListener('click', resetLoan);
   $('loanForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    var person = $('loanPerson').value.trim(), cents = userCents($('loanAmount').value);
+    var person = $('loanPerson').value.trim(), cents = JZ.userCents($('loanAmount').value);
     if (!person) { $('loanErr').textContent = '请输入对方姓名'; return; }
     if (cents === null) { $('loanErr').textContent = '请输入大于0的金额，最多两位小数'; return; }
     var item = { dir: loan.dir, person: person, cents: cents, date: $('loanDate').value || today(), note: $('loanNote').value.trim() };
     var i = loan.editId ? find(db.loans, loan.editId) : -1;
     if (i >= 0) { var o = db.loans[i]; item.id = o.id; item.ts = o.ts; item.repaid = o.repaid; item.repaidDate = o.repaidDate; db.loans[i] = item; }
     else { item.id = uid(); item.ts = Date.now(); item.repaid = false; item.repaidDate = ''; db.loans.push(item); }
-    save(); resetLoan(); renderLoans();
-    toast(i >= 0 ? '✏️ 借贷已更新' : '🤝 借贷已记下', true);
+    if (!save()) {
+      if (i >= 0) db.loans[i] = o; else db.loans.pop();
+      return;
+    }
+    var edited = i >= 0;
+    resetLoan(); renderLoans();
+    toast(edited ? '借贷已更新' : '借贷已记下', true);
   });
   function renderLoans() {
-    var owed = 0, owe = 0, per = {};
-    db.loans.forEach(function (l) {
-      if (l.repaid) return;
-      if (l.dir === 'out') owed += l.cents; else owe += l.cents;
-      per[l.person] = (per[l.person] || 0) + (l.dir === 'out' ? l.cents : -l.cents);
-    });
-    $('owedMe').textContent = fmt(owed); $('iOwe').textContent = fmt(owe);
-    var ph = '';
-    Object.keys(per).sort(function (a, b) { return Math.abs(per[b]) - Math.abs(per[a]); }).forEach(function (p) {
-      var v = per[p];
-      ph += '<div class="item"><div class="info"><div class="c"><span class="dot" aria-hidden="true">👤</span>' + esc(p) + '</div></div><span class="amt ' + (v >= 0 ? 'inc' : 'exp') + '">' +
-        (v > 0 ? '欠我 ' + fmt(v) : v < 0 ? '我欠 ' + fmt(-v) : '已抵平') + '</span></div>';
-    });
-    $('perPerson').innerHTML = ph || emptyHTML('loan', '大家都两清啦', '暂时没有未还的借贷');
-    var list = db.loans.slice().sort(function (a, b) { return (a.repaid - b.repaid) || (a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts); });
-    var lh = '';
-    list.forEach(function (l) {
-      var out = l.dir === 'out';
-      lh += '<div class="item' + (l.repaid ? ' repaid' : '') + '"><div class="info"><div class="c"><span class="dot" aria-hidden="true">' + (out ? '📤' : '📥') + '</span>' + (out ? '借出给 ' : '借入自 ') + esc(l.person) + '</div>' +
-        '<div class="n">' + esc(l.date) + (l.repaid ? ' · ' + esc(l.repaidDate) + ' 已还' : '') + (l.note ? ' · ' + esc(l.note) : '') + '</div></div>' +
-        '<span class="amt ' + (out ? 'inc' : 'exp') + '">' + fmt(l.cents) + '</span>' +
-        '<button class="status' + (l.repaid ? ' done' : '') + '" data-toggle="' + l.id + '">' + (l.repaid ? '已还' : '未还') + '</button>' +
-        '<button class="icon" data-ledit="' + l.id + '">编辑</button><button class="icon" data-lrm="' + l.id + '">删除</button></div>';
-    });
-    $('loanList').innerHTML = lh || emptyHTML('loan', '还没有借贷记录', '记一笔借出或借入吧');
+    var report = JZ.loanReport(db.loans);
+    $('owedMe').textContent = JZ.fmt(report.owedMe);
+    $('iOwe').textContent = JZ.fmt(report.iOwe);
+    $('owedMeta').textContent = '未还 ' + report.openOutCount + ' 笔';
+    $('oweMeta').textContent = '未还 ' + report.openInCount + ' 笔';
+    $('netLine').textContent = '净额：' + report.netText + (report.net === 0 ? '' : ' ' + JZ.fmt(Math.abs(report.net))) +
+      ' · 未还 ' + (report.openOutCount + report.openInCount) + ' 笔 · 已还清 ' + report.repaidCount + ' 笔';
+    var ph = '', i, p, bits, amt, amtClass;
+    for (i = 0; i < report.people.length; i++) {
+      p = report.people[i];
+      bits = [];
+      bits.push(p.openCount ? '未还 ' + p.openCount + ' 笔' : '没有未还');
+      if (p.net > 0) bits.push('待收 ' + JZ.fmt(p.net));
+      else if (p.net < 0) bits.push('待还 ' + JZ.fmt(-p.net));
+      if (p.openOutN && p.openInN) bits.push('借出 ' + JZ.fmt(p.openOut) + ' / 借入 ' + JZ.fmt(p.openIn));
+      if (p.repaidN) bits.push('已还清 ' + p.repaidN + ' 笔');
+      amt = p.status === 'settled' ? '已结清' : p.status === 'offset' ? '已抵平' : JZ.fmt(Math.abs(p.net));
+      amtClass = p.status === 'owed' ? 'inc' : p.status === 'owing' ? 'exp' : '';
+      ph += '<div class="item"><div class="info"><div class="c"><span class="dot" aria-hidden="true">👤</span>' + esc(p.person) +
+        '<span class="pill ' + p.status + '">' + p.statusText + '</span></div><div class="n">' + esc(bits.join(' · ')) + '</div></div>' +
+        '<span class="amt ' + amtClass + '">' + amt + '</span></div>';
+    }
+    $('perPerson').innerHTML = ph || emptyHTML('loan', '还没有借贷对象', '记一笔借出或借入，这里会按人显示状态');
+    var list = db.loans.slice().sort(function (a, b) { return ((a.repaid ? 1 : 0) - (b.repaid ? 1 : 0)) || (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.ts || 0) - (a.ts || 0)); });
+    var lh = '', l, out, statusLabel;
+    for (i = 0; i < list.length; i++) {
+      l = list[i]; out = l.dir === 'out';
+      statusLabel = l.repaid ? '已还清' : (out ? '待收回' : '待归还');
+      lh += '<div class="item' + (l.repaid ? ' repaid' : '') + '"><div class="info"><div class="c"><span class="dot" aria-hidden="true">' + (out ? '📤' : '📥') + '</span>' +
+        (out ? '借出给 ' : '借入自 ') + esc(l.person) + '</div><div class="n">' + esc(l.date) + ' · ' + statusLabel + (l.note ? ' · ' + esc(l.note) : '') + '</div></div>' +
+        '<span class="amt ' + (out ? 'inc' : 'exp') + '">' + JZ.fmt(l.cents) + '</span>' +
+        '<button type="button" class="status' + (l.repaid ? ' done' : '') + '" data-toggle="' + esc(l.id) + '" aria-label="' + (l.repaid ? '标为未还' : '标为已还') + '">' + (l.repaid ? '已还' : '未还') + '</button>' +
+        '<button type="button" class="icon" data-ledit="' + esc(l.id) + '">编辑</button><button type="button" class="icon" data-lrm="' + esc(l.id) + '">删除</button></div>';
+    }
+    $('loanList').innerHTML = lh || emptyHTML('loan', '还没有借贷记录', '上面可以记一笔借出或借入');
   }
   $('loanList').addEventListener('click', function (ev) {
     var t = ev.target, tg = t.getAttribute('data-toggle'), ed = t.getAttribute('data-ledit'), rm = t.getAttribute('data-lrm'), i;
@@ -336,263 +535,150 @@
       if (!l.repaid) {
         var d = prompt('标记为已还，还款日期：', today()); if (d === null) return;
         l.repaid = true; l.repaidDate = /^\d{4}-\d{2}-\d{2}$/.test(d.trim()) ? d.trim() : today();
-      } else if (confirm('改回“未还”？')) { l.repaid = false; l.repaidDate = ''; } else return;
+      } else if (confirm('改回未还？')) { l.repaid = false; l.repaidDate = ''; } else return;
       save(); renderLoans();
     }
-    if (rm && confirm('确定删除这条借贷记录？')) { i = find(db.loans, rm); if (i >= 0) { db.loans.splice(i, 1); save(); if (loan.editId === rm) resetLoan(); renderLoans(); } }
+    if (rm && confirm('确定删除这条借贷记录？')) {
+      i = find(db.loans, rm); if (i >= 0) { db.loans.splice(i, 1); save(); if (loan.editId === rm) resetLoan(); renderLoans(); }
+    }
     if (ed) {
       i = find(db.loans, ed); if (i < 0) return; var o = db.loans[i];
       loan.editId = ed; loan.dir = o.dir; setToggle($('dirToggle'), 'data-dir', o.dir);
-      $('loanPerson').value = o.person; $('loanAmount').value = fmt(o.cents); $('loanDate').value = o.date; $('loanNote').value = o.note || '';
+      $('loanPerson').value = o.person; $('loanAmount').value = JZ.fmt(o.cents); $('loanDate').value = o.date; $('loanNote').value = o.note || '';
       $('loanTitle').textContent = '✏️ 编辑借贷'; $('loanSave').textContent = '保存修改'; show($('loanCancel'), true);
-      window.scrollTo(0, $('loanTitle').offsetTop - 10);
+      if ($('loanTitle').scrollIntoView) $('loanTitle').scrollIntoView();
     }
   });
 
-  // ---------- 账单导入 ----------
-  function clean(c) { return String(c == null ? '' : c).replace(/^[\s\uFEFF\u00A0]+|[\s\u00A0]+$/g, ''); }
-  function parseCSV(text) {
-    var rows = [], row = [], f = '', q = false, i, ch;
-    for (i = 0; i < text.length; i++) {
-      ch = text.charAt(i);
-      if (q) {
-        if (ch === '"') { if (text.charAt(i + 1) === '"') { f += '"'; i++; } else q = false; }
-        else f += ch;
-      } else if (ch === '"') q = true;
-      else if (ch === ',') { row.push(f); f = ''; }
-      else if (ch === '\n' || ch === '\r') {
-        if (ch === '\r' && text.charAt(i + 1) === '\n') i++;
-        row.push(f); rows.push(row); row = []; f = '';
-      } else f += ch;
-    }
-    if (f || row.length) { row.push(f); rows.push(row); }
-    return rows.map(function (r) { return r.map(clean); });
-  }
-  function bad(s) { var m = s.match(/\uFFFD/g); return m ? m.length : 0; }
+  function bad(s) { var m = String(s).match(/\uFFFD/g); return m ? m.length : 0; }
   function decode(buf) {
     var bytes = new Uint8Array(buf), u = null, g = null;
     if (window.TextDecoder) {
       try { u = new TextDecoder('utf-8').decode(bytes); } catch (e) {}
       if (u !== null && !bad(u)) return { text: u.replace(/^\uFEFF/, ''), enc: 'UTF-8' };
-      try { g = new TextDecoder('gb18030').decode(bytes); } catch (e) {}
+      try { g = new TextDecoder('gb18030').decode(bytes); } catch (e2) {}
       if (g !== null && (u === null || bad(g) < bad(u))) return { text: g, enc: 'GB18030' };
       if (u !== null && g !== null) return { text: u.replace(/^\uFEFF/, ''), enc: 'UTF-8' };
     }
-    // 旧浏览器无 TextDecoder/gb18030：用 SheetJS 内置代码页
     if (window.cptable && cptable.utils) {
-      try { u = cptable.utils.decode(65001, bytes); } catch (e) { u = null; }
+      try { u = cptable.utils.decode(65001, bytes); } catch (e3) { u = null; }
       if (u !== null && !bad(u)) return { text: u.replace(/^\uFEFF/, ''), enc: 'UTF-8' };
-      try { return { text: cptable.utils.decode(936, bytes), enc: 'GBK' }; } catch (e) {}
+      try { return { text: cptable.utils.decode(936, bytes), enc: 'GBK' }; } catch (e4) {}
     }
     var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
     return { text: s, enc: '未知' };
   }
-  function parseAmt(s) {
-    s = clean(s).replace(/[¥￥,，元\s]/g, '');
-    var neg = false;
-    if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
-    if (!/^[-+]?\d+(\.\d+)?$/.test(s)) return null;
-    var v = Math.round(parseFloat(s) * 100);
-    return neg ? -v : v;
-  }
-  function parseDate(s) {
-    s = clean(s);
-    var m = s.match(/(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})/) || s.match(/^(\d{4})(\d{2})(\d{2})/);
-    if (!m) return null;
-    var y = +m[1], mo = +m[2], d = +m[3];
-    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-    return y + '-' + pad(mo) + '-' + pad(d);
-  }
-  function findCol(hdr, kws, excl) {
-    var i, k;
-    for (k = 0; k < kws.length; k++) for (i = 0; i < hdr.length; i++) if (hdr[i].toLowerCase() === kws[k]) return i;
-    for (k = 0; k < kws.length; k++) for (i = 0; i < hdr.length; i++) {
-      var h = hdr[i].toLowerCase();
-      if (h && h.indexOf(kws[k]) >= 0 && !(excl && excl.test(h))) return i;
-    }
-    return -1;
-  }
-  function findCols(hdr, kws) {
-    var out = [];
-    kws.forEach(function (k) { var i = findCol(hdr, [k]); if (i >= 0 && out.indexOf(i) < 0) out.push(i); });
-    return out;
-  }
-  var RULES = {
-    expense: [
-      ['餐饮', /餐|饭|食|外卖|美团|饿了么|咖啡|奶茶|茶饮|肯德基|麦当劳|星巴克|瑞幸|面包|烧烤|火锅|小吃|美食/],
-      ['交通', /交通|出行|滴滴|打车|地铁|公交|加油|石化|石油|高铁|铁路|12306|航空|机票|停车|ETC|高速|单车|哈啰|曹操/i],
-      ['居住', /房租|租金|物业|水费|电费|燃气|宽带|话费|充值缴费|生活缴费|住房|酒店|住宿/],
-      ['医疗', /医|药|诊所|体检|健康/],
-      ['教育', /学费|教育|课程|培训|书店|图书|文具|知识/],
-      ['娱乐', /电影|影城|游戏|会员|视频|音乐|KTV|演出|门票|娱乐|休闲|爱奇艺|腾讯视频|优酷|网易云|Steam/i],
-      ['购物', /淘宝|天猫|京东|拼多多|超市|商城|便利店|购物|日用|百货|服饰|数码|唯品会|盒马|山姆|商户消费/]
-    ],
-    income: [
-      ['工资', /工资|薪|代发|劳务/],
-      ['奖金', /奖金|奖励|绩效/],
-      ['理财', /利息|收益|理财|基金|结息|余额宝|分红/],
-      ['红包', /红包|转账|收款/]
-    ]
-  };
-  function guessCat(type, text) {
-    var r = RULES[type];
-    for (var i = 0; i < r.length; i++) if (r[i][1].test(text)) return r[i][0];
-    var cs = cats(type);
-    for (i = 0; i < cs.length; i++) if (cs[i] !== '其他' && text.indexOf(cs[i]) >= 0) return cs[i];
-    return '其他';
-  }
-  var SKIP_STATUS = /关闭|失败|全额退款|退款成功|已撤销|撤销|已退款/;
-  function mapRows(rows, h, c) {
-    var out = [];
-    for (var r = h + 1; r < rows.length; r++) {
-      var row = rows[r]; if (!row) continue;
-      var date = parseDate(row[c.date] || ''); if (!date) continue;
-      if (c.status >= 0 && SKIP_STATUS.test(row[c.status] || '')) continue;
-      var type = null, cents = null;
-      if (c.io >= 0) {
-        var io = clean(row[c.io]);
-        if (/收入|^收$|^贷$|贷方/.test(io)) type = 'income';
-        else if (/支出|^支$|^借$|借方/.test(io)) type = 'expense';
-        else continue; // 不计收支、/ 等
-        cents = parseAmt(row[c.amount]); if (cents === null) continue; cents = Math.abs(cents);
-      } else if (c.inc >= 0 && c.exp >= 0) {
-        var a = parseAmt(row[c.inc]), b = parseAmt(row[c.exp]);
-        if (a) { type = 'income'; cents = Math.abs(a); } else if (b) { type = 'expense'; cents = Math.abs(b); } else continue;
-      } else {
-        cents = parseAmt(row[c.amount]); if (!cents) continue;
-        type = cents < 0 ? 'expense' : 'income'; cents = Math.abs(cents);
-      }
-      if (!cents) continue;
-      var parts = [];
-      c.desc.forEach(function (i) { var v = clean(row[i]); if (v && v !== '/' && parts.indexOf(v) < 0) parts.push(v); });
-      var note = parts.join(' ').slice(0, 50);
-      var hay = (c.cat >= 0 ? clean(row[c.cat]) + ' ' : '') + note;
-      out.push({ type: type, cents: cents, date: date, note: note, cat: guessCat(type, hay) });
-    }
-    return out;
-  }
-  function detect(rows) {
-    var lim = Math.min(rows.length, 60), r, hdr;
-    for (r = 0; r < lim; r++) {
-      hdr = rows[r]; if (!hdr || hdr.length < 3) continue;
-      var tCol = findCol(hdr, ['交易时间', '交易创建时间', '付款时间']), ioCol = findCol(hdr, ['收/支', '收支']);
-      if (tCol >= 0 && ioCol >= 0) {
-        var wx = findCol(hdr, ['当前状态']) >= 0 || findCol(hdr, ['支付方式']) >= 0 && findCol(hdr, ['交易类型']) >= 0;
-        return {
-          name: wx ? '微信支付账单' : '支付宝账单', header: r,
-          cols: { date: tCol, io: ioCol, amount: findCol(hdr, ['金额(元)', '金额（元）', '金额'], /余额/),
-            status: findCol(hdr, wx ? ['当前状态'] : ['交易状态']), inc: -1, exp: -1,
-            cat: findCol(hdr, wx ? ['交易类型'] : ['交易分类', '类型']),
-            desc: findCols(hdr, ['交易对方', '商品说明', '商品名称', '商品']) }
-        };
-      }
-    }
-    for (r = 0; r < lim; r++) {
-      hdr = rows[r]; if (!hdr || hdr.length < 2) continue;
-      var d = findCol(hdr, ['交易日期', '记账日期', '交易时间', '入账日期', '日期', '时间', 'date', 'transaction date']);
-      if (d < 0) continue;
-      var inc = findCol(hdr, ['收入金额', '贷方金额', '收入', '贷方发生额', '贷方', 'credit'], /余额/);
-      var exp = findCol(hdr, ['支出金额', '借方金额', '支出', '借方发生额', '借方', 'debit'], /余额/);
-      var amt = findCol(hdr, ['交易金额', '发生额', '金额', 'amount'], /余额|balance/);
-      var io = findCol(hdr, ['收/支', '收支', '借贷标志', '借贷', '收付']);
-      if (inc === exp) inc = exp = -1;
-      if (amt < 0 && (inc < 0 || exp < 0)) continue;
-      return {
-        name: '银行流水（通用）', header: r,
-        cols: { date: d, amount: amt, inc: amt >= 0 && io >= 0 ? -1 : inc, exp: amt >= 0 && io >= 0 ? -1 : exp,
-          io: amt >= 0 ? io : -1, status: findCol(hdr, ['交易状态', '状态']), cat: -1,
-          desc: findCols(hdr, ['摘要', '交易摘要', '对方户名', '对方账户名', '交易对方', '对方', '备注', '附言', '用途', '交易类型', 'description', 'memo']) }
-      };
-    }
-    return null;
-  }
-
-  var imp = { rows: null, items: [] };
-  function dupKey(e) { return e.date + '|' + e.cents + '|' + (e.note || ''); }
+  function catArg() { return { expense: JZ.categories(db, 'expense'), income: JZ.categories(db, 'income') }; }
+  var imp = { rows: null, items: [], skipped: 0, header: 0 };
   function showPreview(name, items) {
-    var keys = {};
-    db.entries.forEach(function (e) { keys[dupKey(e)] = 1; });
-    items.forEach(function (it) { it.dup = !!keys[dupKey(it)]; it.on = !it.dup; });
-    imp.items = items;
+    imp.items = JZ.markDuplicates(items, db.entries);
     $('fmtName').textContent = '（' + name + '）';
     show($('previewCard'), true);
     renderPreview();
   }
-  function catOptions(type, sel) {
-    return cats(type).map(function (c) { return '<option' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
-  }
   function renderPreview() {
-    var h = '';
-    imp.items.forEach(function (it, i) {
-      h += '<div class="prow' + (it.dup ? ' dup' : '') + '"><div class="h"><input type="checkbox" data-i="' + i + '"' + (it.on ? ' checked' : '') + '>' +
-        '<span class="d">' + it.date + '</span><span class="amt ' + (it.type === 'income' ? 'inc' : 'exp') + '">' + (it.type === 'income' ? '+' : '-') + fmt(it.cents) + '</span></div>' +
+    var h = '', i, it;
+    for (i = 0; i < imp.items.length; i++) {
+      it = imp.items[i];
+      h += '<div class="prow' + (it.dup ? ' dup' : '') + '"><div class="h"><input type="checkbox" data-i="' + i + '"' + (it.on ? ' checked' : '') + ' aria-label="选择这条">' +
+        '<span class="d">' + esc(it.date) + ' ' + JZ.catIcon(it.cat) + '</span><span class="amt ' + (it.type === 'income' ? 'inc' : 'exp') + '">' + (it.type === 'income' ? '+' : '-') + JZ.fmt(it.cents) + '</span></div>' +
         '<div class="n">' + esc(it.note || '（无说明）') + '</div>' +
-        '<div class="sel"><select data-ty="' + i + '"><option value="expense"' + (it.type === 'expense' ? ' selected' : '') + '>支出</option><option value="income"' + (it.type === 'income' ? ' selected' : '') + '>收入</option></select>' +
-        '<select data-ca="' + i + '">' + catOptions(it.type, it.cat) + '</select></div>' +
-        (it.dup ? '<div class="flag">⚠ 可能重复（已有相同日期、金额和备注的记录）</div>' : '') + '</div>';
-    });
-    $('previewList').innerHTML = h || '<div class="empty">没有可导入的收支记录</div>';
+        '<div class="sel"><select data-ty="' + i + '" aria-label="收支"><option value="expense"' + (it.type === 'expense' ? ' selected' : '') + '>支出</option><option value="income"' + (it.type === 'income' ? ' selected' : '') + '>收入</option></select>' +
+        '<select data-ca="' + i + '" aria-label="分类">' + catOptions(it.type, it.cat) + '</select></div>' +
+        (it.dup ? '<div class="flag">疑似重复，默认不导入（已有相同日期、金额和备注）</div>' : '') + '</div>';
+    }
+    $('previewList').innerHTML = h || '<div class="empty"><div class="msg">没有可导入的收支记录</div></div>';
     updateStat();
   }
   function updateStat() {
-    var n = 0, inc = 0, exp = 0, dup = 0;
-    imp.items.forEach(function (it) { if (it.dup) dup++; if (!it.on) return; n++; if (it.type === 'income') inc += it.cents; else exp += it.cents; });
-    $('previewStat').textContent = '共解析 ' + imp.items.length + ' 条，已选 ' + n + ' 条' + (dup ? '（' + dup + ' 条疑似重复未勾选）' : '') +
-      '；收入 ¥' + fmt(inc) + '，支出 ¥' + fmt(exp);
+    var n = 0, inc = 0, exp = 0, dup = 0, i, it;
+    for (i = 0; i < imp.items.length; i++) {
+      it = imp.items[i];
+      if (it.dup) dup++;
+      if (!it.on) continue;
+      n++;
+      if (it.type === 'income') inc += it.cents; else exp += it.cents;
+    }
+    $('pvN').textContent = String(n);
+    $('pvIn').textContent = JZ.fmt(inc);
+    $('pvOut').textContent = JZ.fmt(exp);
+    $('previewStat').textContent = '共解析 ' + imp.items.length + ' 条' +
+      (dup ? '，' + dup + ' 条疑似重复，默认不勾选' : '') +
+      (imp.skipped ? '。已跳过 ' + imp.skipped + ' 条关闭、失败或退款' : '');
+    $('impConfirm').textContent = '导入选中的 ' + n + ' 条';
     $('impConfirm').disabled = !n;
   }
   $('previewList').addEventListener('change', function (ev) {
     var t = ev.target, i;
     if ((i = t.getAttribute('data-i')) !== null) { imp.items[+i].on = t.checked; updateStat(); }
-    else if ((i = t.getAttribute('data-ty')) !== null) { var it = imp.items[+i]; it.type = t.value; it.cat = guessCat(it.type, it.note); renderPreview(); }
-    else if ((i = t.getAttribute('data-ca')) !== null) { imp.items[+i].cat = t.value; }
+    else if ((i = t.getAttribute('data-ty')) !== null) {
+      var it = imp.items[+i]; it.type = t.value; it.cat = JZ.guessCat(it.type, it.note, JZ.categories(db, it.type)); renderPreview();
+    } else if ((i = t.getAttribute('data-ca')) !== null) imp.items[+i].cat = t.value;
   });
   $('selAll').addEventListener('click', function () { imp.items.forEach(function (it) { it.on = true; }); renderPreview(); });
   $('selNone').addEventListener('click', function () { imp.items.forEach(function (it) { it.on = false; }); renderPreview(); });
   $('impConfirm').addEventListener('click', function () {
     var sel = imp.items.filter(function (it) { return it.on; });
     if (!sel.length) return;
-    var t = Date.now();
-    sel.forEach(function (it, k) { db.entries.push({ id: uid() + k, ts: t + k, type: it.type, cents: it.cents, cat: it.cat, date: it.date, note: it.note, photo: false }); });
-    if (!save()) { db.entries.splice(db.entries.length - sel.length, sel.length); return; }
+    var t = Date.now(), before = db.entries.length;
+    sel.forEach(function (it, k) {
+      db.entries.push({ id: uid() + k, ts: t + k, type: it.type, cents: it.cents, cat: it.cat, date: it.date, note: it.note, photo: false });
+    });
+    if (!save()) { db.entries.splice(before, db.entries.length - before); return; }
     alert('已导入 ' + sel.length + ' 条记录');
-    toast('📥 导入成功 · ' + sel.length + ' 条', true);
-    imp.items = []; show($('previewCard'), false); show($('mapCard'), false); $('impMsg').textContent = '已导入 ' + sel.length + ' 条记录。';
+    toast('导入成功 · ' + sel.length + ' 条', true);
+    imp.items = []; show($('previewCard'), false); show($('mapCard'), false);
+    $('impMsg').textContent = '已导入 ' + sel.length + ' 条记录。';
     var last = sel[0].date; state.y = +last.slice(0, 4); state.m = +last.slice(5, 7);
+    render();
   });
-
   function colOptions(hdr) {
-    var h = '<option value="-1">（无）</option>';
-    for (var i = 0; i < hdr.length; i++) h += '<option value="' + i + '">第' + (i + 1) + '列：' + esc((hdr[i] || '').slice(0, 12)) + '</option>';
+    var h = '<option value="-1">（无）</option>', i;
+    for (i = 0; i < hdr.length; i++) h += '<option value="' + i + '">第' + (i + 1) + '列：' + esc(String(hdr[i] || '').slice(0, 12)) + '</option>';
     return h;
   }
   function fillMap() {
     var r = +$('mapHeader').value, hdr = imp.rows[r] || [];
     ['mapDate', 'mapAmount', 'mapDesc'].forEach(function (id) { $(id).innerHTML = colOptions(hdr); });
+    var dateCol = JZ.findCol(hdr, ['交易时间', '交易创建时间', '付款时间', '交易日期', '记账日期', '入账日期', '日期', '时间', 'date']);
+    var amtCol = JZ.findCol(hdr, ['金额(元)', '金额（元）', '交易金额', '发生额', '金额', 'amount'], /余额/);
+    var descCol = JZ.findCol(hdr, ['商品说明', '商品', '摘要', '交易对方', '备注', 'description']);
+    if (dateCol >= 0) $('mapDate').value = String(dateCol);
+    if (amtCol >= 0) $('mapAmount').value = String(amtCol);
+    if (descCol >= 0) $('mapDesc').value = String(descCol);
   }
   function showMap() {
-    var h = '', lim = Math.min(imp.rows.length, 30);
-    for (var r = 0; r < lim; r++) h += '<option value="' + r + '">第' + (r + 1) + '行：' + esc(imp.rows[r].join(' | ').slice(0, 30)) + '</option>';
-    $('mapHeader').innerHTML = h; fillMap(); show($('mapCard'), true);
+    var h = '', lim = Math.min(imp.rows.length, 30), r;
+    for (r = 0; r < lim; r++) h += '<option value="' + r + '">第' + (r + 1) + '行：' + esc(imp.rows[r].join(' | ').slice(0, 30)) + '</option>';
+    $('mapHeader').innerHTML = h;
+    if (imp.header != null && $('mapHeader').querySelector('option[value="' + imp.header + '"]')) $('mapHeader').value = String(imp.header);
+    fillMap(); show($('mapCard'), true);
   }
   $('mapHeader').addEventListener('change', fillMap);
+  $('manualBtn').addEventListener('click', function () {
+    if (!imp.rows || !imp.rows.length) { toast('请先选择账单文件'); return; }
+    showMap();
+    if ($('mapCard').scrollIntoView) $('mapCard').scrollIntoView();
+  });
   $('mapApply').addEventListener('click', function () {
     var c = { date: +$('mapDate').value, amount: +$('mapAmount').value, desc: +$('mapDesc').value >= 0 ? [+$('mapDesc').value] : [], io: -1, inc: -1, exp: -1, status: -1, cat: -1 };
     if (c.date < 0 || c.amount < 0) { alert('请选择日期列和金额列'); return; }
-    var items = mapRows(imp.rows, +$('mapHeader').value, c);
-    if (!items.length) { alert('按所选列没有解析到记录，请检查'); return; }
-    showPreview('手动指定列', items);
+    var parsed = JZ.mapRows(imp.rows, +$('mapHeader').value, c, catArg());
+    imp.skipped = parsed.skipped;
+    if (!parsed.items.length) { alert('按所选列没有解析到记录，请检查'); return; }
+    showPreview('手动指定列', parsed.items);
   });
-
   function handleRows(rows, enc) {
     imp.rows = rows.filter(function (r) { return r.join('') !== ''; });
     show($('previewCard'), false); show($('mapCard'), false);
-    var f = detect(imp.rows);
+    var f = JZ.detect(imp.rows);
+    imp.header = f ? f.header : 0;
     if (f) {
-      var items = mapRows(imp.rows, f.header, f.cols);
+      var parsed = JZ.mapRows(imp.rows, f.header, f.cols, catArg());
+      imp.skipped = parsed.skipped;
       $('impMsg').textContent = '识别为：' + f.name + (enc ? '（编码 ' + enc + '）' : '');
-      if (items.length) { showPreview(f.name, items); return; }
-      $('impMsg').textContent += '，但没有可导入的收支记录，可手动指定列。';
+      if (parsed.items.length) { showPreview(f.name, parsed.items); return; }
+      $('impMsg').textContent += '，但没有可导入的收支记录' + (parsed.skipped ? '（已跳过 ' + parsed.skipped + ' 条关闭、失败或退款）' : '') + '，可手动指定列。';
     } else $('impMsg').textContent = '未能自动识别格式' + (enc ? '（编码 ' + enc + '）' : '') + '，请手动指定列。';
     if (imp.rows.length) showMap();
   }
@@ -608,10 +694,10 @@
           var wb = XLSX.read(new Uint8Array(rd.result), { type: 'array', cellDates: true, codepage: 936 });
           var ws = wb.Sheets[wb.SheetNames[0]];
           var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
-          handleRows(rows.map(function (r) { return r.map(clean); }), '');
+          handleRows(rows.map(function (r) { return r.map(JZ.clean); }), '');
         } else {
           var d = decode(rd.result);
-          handleRows(parseCSV(d.text), d.enc);
+          handleRows(JZ.parseCSV(d.text), d.enc);
         }
       } catch (e) { $('impMsg').textContent = '读取失败：' + (e.message || e); }
     };
@@ -619,13 +705,13 @@
     rd.readAsArrayBuffer(f);
   });
 
-  // ---------- 备份 ----------
   $('exportBtn').addEventListener('click', function () {
-    var data = JSON.parse(JSON.stringify(db));
+    var photos = null;
     if ($('incPhotos').checked) {
-      data.photos = {};
-      db.entries.forEach(function (e) { if (e.photo) { var p = getPhoto(e.id); if (p) data.photos[e.id] = p; } });
+      photos = {};
+      db.entries.forEach(function (e) { if (e.photo) { var p = getPhoto(e.id); if (p) photos[e.id] = p; } });
     }
+    var data = JZ.exportPayload(db, photos);
     var json = JSON.stringify(data);
     var box = $('backupBox'); show(box, true); box.value = json;
     try {
@@ -636,13 +722,13 @@
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } catch (e) {}
     box.select();
-    alert('已导出（约 ' + kb(json.length * 2) + '）。若未自动下载（如在微信中），请复制文本框内容保存。');
+    alert('已导出（含记账、借贷、预算和自定义分类' + (photos ? '、照片' : '') + '，约 ' + kb(json.length * 2) + '）。若未自动下载（如在微信中），请复制文本框内容保存。');
   });
   function doImport(text) {
     try {
-      var d = normalize(JSON.parse(text));
+      var prepared = JZ.prepareBackup(text);
+      var d = prepared.db, photos = prepared.photos || {};
       if (!confirm('导入将覆盖当前数据（' + d.entries.length + ' 条记账、' + d.loans.length + ' 条借贷），确定？')) return;
-      var photos = d.photos || {}; delete d.photos;
       var old = db; db = d;
       if (!save()) { db = old; return; }
       var fail = 0;
@@ -665,6 +751,13 @@
   });
 
   $('date').value = today(); $('loanDate').value = today();
-  setType('expense'); render(); renderLoans();
-  window.__jizhang = { db: function () { return db; } };
+  setType('expense', false); render(); renderLoans();
+  if (window.IntersectionObserver) {
+    var dockObserver = new IntersectionObserver(function (entries) {
+      var onBook = !$('tab-book').classList.contains('hidden');
+      document.body.classList.toggle('dock-on', onBook && entries[0].isIntersecting);
+    }, { threshold: 0.2 });
+    dockObserver.observe($('entryCard'));
+  }
+  window.__jizhang = { db: function () { return db; }, JZ: JZ };
 })();
