@@ -4,44 +4,54 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#FFE8D6">
 <title>我的记账本</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <!-- ========== 记账 ========== -->
 <div class="tab" id="tab-book">
+<div class="hero">
+  <img src="assets/mascot-coin.svg" alt="" width="44" height="44">
+  <div>
+    <h1>我的记账本</h1>
+    <p class="tagline">今天也要好好花钱呀 ✨</p>
+  </div>
+</div>
 <header class="top">
   <button class="nav" id="prevM" aria-label="上个月">‹</button>
   <div id="monthLabel" class="month"></div>
   <button class="nav" id="nextM" aria-label="下个月">›</button>
 </header>
 <main>
-  <section class="card summary">
-    <div><span>收入</span><b id="sumIn" class="inc">0.00</b></div>
-    <div><span>支出</span><b id="sumOut" class="exp">0.00</b></div>
+  <section class="card summary" aria-label="本月汇总">
+    <div><span>收入</span><b id="sumIn">0.00</b></div>
+    <div class="divider" aria-hidden="true"></div>
+    <div><span>支出</span><b id="sumOut">0.00</b></div>
+    <div class="divider" aria-hidden="true"></div>
     <div><span>结余</span><b id="sumBal">0.00</b></div>
   </section>
 
   <section class="card">
-    <h2 id="formTitle">记一笔</h2>
+    <h2 id="formTitle">✏️ 记一笔</h2>
     <form id="form" novalidate>
       <div class="toggle" id="typeToggle">
         <button type="button" data-type="expense" class="on">支出</button>
         <button type="button" data-type="income">收入</button>
       </div>
-      <input id="amount" type="text" inputmode="decimal" placeholder="金额（如 25.50）" autocomplete="off">
-      <div id="cats" class="cats"></div>
+      <input id="amount" type="text" inputmode="decimal" placeholder="金额（如 25.50）" autocomplete="off" aria-label="金额">
+      <div id="cats" class="cats" role="group" aria-label="分类"></div>
       <div class="row">
-        <input id="date" type="date">
-        <input id="note" type="text" placeholder="备注（可选）" maxlength="50">
+        <input id="date" type="date" aria-label="日期">
+        <input id="note" type="text" placeholder="备注（可选）" maxlength="50" aria-label="备注">
       </div>
       <div class="photo-row">
         <label class="ghost photo-btn" for="photoInput" id="photoLabel">📷 添加照片</label>
         <input type="file" id="photoInput" accept="image/*" class="file-hidden">
-        <img id="photoPreview" class="thumb hidden" alt="照片">
+        <img id="photoPreview" class="thumb hidden" alt="照片预览">
         <button type="button" class="ghost hidden" id="photoRemove">移除照片</button>
       </div>
-      <p id="err" class="err"></p>
+      <p id="err" class="err" role="alert"></p>
       <div class="row">
         <button type="submit" class="primary" id="saveBtn">保存</button>
         <button type="button" class="ghost hidden" id="cancelEdit">取消编辑</button>
@@ -50,7 +60,7 @@
   </section>
 
   <section class="card">
-    <h2>分类统计 <small id="breakType">（支出）</small></h2>
+    <h2>📊 分类统计 <small id="breakType">（支出）</small></h2>
     <div class="toggle small" id="breakToggle">
       <button type="button" data-type="expense" class="on">支出</button>
       <button type="button" data-type="income">收入</button>
@@ -59,12 +69,12 @@
   </section>
 
   <section class="card">
-    <h2>本月明细</h2>
+    <h2>📒 本月明细</h2>
     <div id="list"></div>
   </section>
 
   <section class="card">
-    <h2>数据备份</h2>
+    <h2>💾 数据备份</h2>
     <label class="check"><input type="checkbox" id="incPhotos"> 包含照片</label>
     <p class="hint" id="storageInfo"></p>
     <div class="tools">
@@ -80,29 +90,30 @@
 <!-- ========== 借贷 ========== -->
 <div class="tab hidden" id="tab-loan">
 <main>
-  <h1 class="title">借贷记录</h1>
-  <section class="card summary">
-    <div><span>别人欠我</span><b id="owedMe" class="inc">0.00</b></div>
-    <div><span>我欠别人</span><b id="iOwe" class="exp">0.00</b></div>
+  <h1 class="title"><span class="emoji" aria-hidden="true">🤝</span>借贷记录</h1>
+  <section class="card summary loan-summary" aria-label="借贷汇总">
+    <div><span>别人欠我</span><b id="owedMe">0.00</b></div>
+    <div class="divider" aria-hidden="true"></div>
+    <div><span>我欠别人</span><b id="iOwe">0.00</b></div>
   </section>
   <section class="card">
-    <h2>按人汇总（未还）</h2>
+    <h2>👥 按人汇总（未还）</h2>
     <div id="perPerson"></div>
   </section>
   <section class="card">
-    <h2 id="loanTitle">新增借贷</h2>
+    <h2 id="loanTitle">➕ 新增借贷</h2>
     <form id="loanForm" novalidate>
       <div class="toggle" id="dirToggle">
         <button type="button" data-dir="out" class="on">借出（别人欠我）</button>
         <button type="button" data-dir="in">借入（我欠别人）</button>
       </div>
-      <input id="loanPerson" type="text" placeholder="对方姓名" maxlength="20">
-      <input id="loanAmount" type="text" inputmode="decimal" placeholder="金额" autocomplete="off">
+      <input id="loanPerson" type="text" placeholder="对方姓名" maxlength="20" aria-label="对方姓名">
+      <input id="loanAmount" type="text" inputmode="decimal" placeholder="金额" autocomplete="off" aria-label="金额">
       <div class="row">
-        <input id="loanDate" type="date">
-        <input id="loanNote" type="text" placeholder="备注（可选）" maxlength="50">
+        <input id="loanDate" type="date" aria-label="日期">
+        <input id="loanNote" type="text" placeholder="备注（可选）" maxlength="50" aria-label="备注">
       </div>
-      <p id="loanErr" class="err"></p>
+      <p id="loanErr" class="err" role="alert"></p>
       <div class="row">
         <button type="submit" class="primary" id="loanSave">保存</button>
         <button type="button" class="ghost hidden" id="loanCancel">取消编辑</button>
@@ -110,7 +121,7 @@
     </form>
   </section>
   <section class="card">
-    <h2>全部记录</h2>
+    <h2>📋 全部记录</h2>
     <div id="loanList"></div>
   </section>
 </main>
@@ -119,8 +130,13 @@
 <!-- ========== 导入 ========== -->
 <div class="tab hidden" id="tab-import">
 <main>
-  <h1 class="title">导入账单</h1>
+  <h1 class="title"><span class="emoji" aria-hidden="true">📥</span>导入账单</h1>
   <section class="card">
+    <div class="empty" id="importHero" style="padding-top:12px;padding-bottom:8px">
+      <img src="assets/empty-import.svg" alt="" width="120" height="90">
+      <div class="msg">把账单带进来吧</div>
+      <div class="sub">支持支付宝、微信与银行流水</div>
+    </div>
     <p class="hint">支持支付宝、微信支付导出的账单（CSV），以及银行流水（CSV / Excel .xls .xlsx）。导入前可预览并勾选。</p>
     <label class="primary file-btn" for="stmtFile">选择账单文件</label>
     <input type="file" id="stmtFile" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="file-hidden">
@@ -148,13 +164,14 @@
 </main>
 </div>
 
-<nav class="tabbar">
-  <button type="button" data-tab="book" class="on">记账</button>
-  <button type="button" data-tab="loan">借贷</button>
-  <button type="button" data-tab="import">导入</button>
+<nav class="tabbar" role="tablist" aria-label="主导航">
+  <button type="button" data-tab="book" class="on" role="tab" aria-selected="true"><span class="ti" aria-hidden="true">💰</span>记账</button>
+  <button type="button" data-tab="loan" role="tab" aria-selected="false"><span class="ti" aria-hidden="true">🤝</span>借贷</button>
+  <button type="button" data-tab="import" role="tab" aria-selected="false"><span class="ti" aria-hidden="true">📥</span>导入</button>
 </nav>
 
-<div id="modal" class="modal hidden"><img id="modalImg" alt="照片"><p>点击任意处关闭</p></div>
+<div id="modal" class="modal hidden" role="dialog" aria-label="查看照片"><img id="modalImg" alt="照片"><p>点击任意处关闭</p></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="app.js"></script>

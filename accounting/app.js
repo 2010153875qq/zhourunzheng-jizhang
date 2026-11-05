@@ -16,6 +16,25 @@
   function isQuota(e) { return e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014); }
   var QUOTA_MSG = '手机浏览器存储空间已满（约5MB），无法保存。请删除部分照片或导出备份后清理旧记录。';
 
+  var CAT_ICON = {
+    '餐饮': '🍜', '交通': '🚌', '购物': '🛍️', '娱乐': '🎬', '居住': '🏠',
+    '医疗': '💊', '教育': '📚', '其他': '✨', '工资': '💼', '奖金': '🎁',
+    '理财': '📈', '红包': '🧧'
+  };
+  function catIcon(c) { return CAT_ICON[c] || '⭐'; }
+  function emptyHTML(kind, msg, sub) {
+    var src = 'assets/empty-' + kind + '.svg';
+    return '<div class="empty"><img src="' + src + '" alt=""><div class="msg">' + msg + '</div><div class="sub">' + sub + '</div></div>';
+  }
+  var toastTimer = null;
+  function toast(msg, ok) {
+    var el = $('toast'); if (!el) return;
+    el.textContent = msg;
+    el.className = ok ? 'show ok' : 'show';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = ''; }, 1800);
+  }
+
   // 金额字符串 -> 分（整数），用户输入校验：正数，最多两位小数
   function userCents(v) {
     v = String(v).replace(/\s/g, '').replace('，', '.');
@@ -71,9 +90,16 @@
   // ---------- 标签页 ----------
   var tabbar = document.querySelector('.tabbar');
   tabbar.addEventListener('click', function (ev) {
-    var t = ev.target.getAttribute('data-tab'); if (!t) return;
+    var btn = ev.target;
+    while (btn && btn !== tabbar && (!btn.getAttribute || !btn.getAttribute('data-tab'))) btn = btn.parentNode;
+    if (!btn || btn === tabbar) return;
+    var t = btn.getAttribute('data-tab'); if (!t) return;
     var bs = tabbar.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++) bs[i].className = bs[i].getAttribute('data-tab') === t ? 'on' : '';
+    for (var i = 0; i < bs.length; i++) {
+      var on = bs[i].getAttribute('data-tab') === t;
+      bs[i].className = on ? 'on' : '';
+      bs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
     show($('tab-book'), t === 'book'); show($('tab-loan'), t === 'loan'); show($('tab-import'), t === 'import');
     window.scrollTo(0, 0);
     if (t === 'book') render(); if (t === 'loan') renderLoans();
@@ -90,17 +116,21 @@
     if (list.indexOf(state.cat) < 0) state.cat = list[0];
     for (var i = 0; i < list.length; i++) {
       var c = list[i], custom = db.custom[state.type].indexOf(c) >= 0;
-      h += '<button type="button" class="cat' + (c === state.cat ? ' on' : '') + '" data-cat="' + esc(c) + '">' + esc(c) +
+      h += '<button type="button" class="cat cat-' + esc(c) + (c === state.cat ? ' on' : '') + '" data-cat="' + esc(c) + '"><span class="ico" aria-hidden="true">' + catIcon(c) + '</span>' + esc(c) +
         (custom ? '<span class="x" data-del="' + esc(c) + '">×</span>' : '') + '</button>';
     }
-    h += '<button type="button" class="cat add" data-add="1">+ 自定义</button>';
+    h += '<button type="button" class="cat add" data-add="1"><span class="ico">＋</span>自定义</button>';
     $('cats').innerHTML = h;
   }
   function setToggle(box, attr, val) {
     var bs = box.querySelectorAll('button');
     for (var i = 0; i < bs.length; i++) bs[i].className = bs[i].getAttribute(attr) === val ? 'on' : '';
   }
-  function setType(t) { state.type = t; setToggle($('typeToggle'), 'data-type', t); renderCats(); }
+  function setType(t) {
+    state.type = t; setToggle($('typeToggle'), 'data-type', t); renderCats();
+    var box = $('typeToggle');
+    if (box) { if (t === 'income') box.classList.add('income-on'); else box.classList.remove('income-on'); }
+  }
 
   function monthEntries() {
     var k = monthKey();
@@ -124,18 +154,18 @@
       bh += '<div class="bar ' + bt + '"><div class="t"><span>' + esc(k) + ' ' + p.toFixed(1) + '%</span><span>¥' + fmt(totals[k]) +
         '</span></div><div class="track"><div class="fill" style="width:' + p.toFixed(1) + '%"></div></div></div>';
     });
-    $('breakdown').innerHTML = bh || '<div class="empty">本月暂无' + (bt === 'income' ? '收入' : '支出') + '</div>';
+    $('breakdown').innerHTML = bh || emptyHTML('book', '还没有' + (bt === 'income' ? '收入' : '支出'), '记一笔就能看到分类占比啦');
     es.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts; });
     var lh = '', cur = null;
     es.forEach(function (e) {
       if (e.date !== cur) { cur = e.date; lh += '<div class="day"><span>' + e.date.slice(5).replace('-', '月') + '日</span></div>'; }
       var isIn = e.type === 'income', ph = e.photo ? getPhoto(e.id) : null;
       lh += '<div class="item">' + (ph ? '<button class="pic" data-view="' + e.id + '"><img src="' + ph + '" alt="照片" data-view="' + e.id + '"></button>' : '') +
-        '<div class="info"><div class="c">' + esc(e.cat) + '</div>' + (e.note ? '<div class="n">' + esc(e.note) + '</div>' : '') +
+        '<div class="info"><div class="c"><span class="dot" aria-hidden="true">' + catIcon(e.cat) + '</span>' + esc(e.cat) + '</div>' + (e.note ? '<div class="n">' + esc(e.note) + '</div>' : '') +
         '</div><span class="amt ' + (isIn ? 'inc' : 'exp') + '">' + (isIn ? '+' : '-') + fmt(e.cents) + '</span>' +
-        '<button class="icon" data-edit="' + e.id + '">编辑</button><button class="icon" data-rm="' + e.id + '">删除</button></div>';
+        '<button class="icon" data-edit="' + e.id + '" aria-label="编辑">编辑</button><button class="icon" data-rm="' + e.id + '" aria-label="删除">删除</button></div>';
     });
-    $('list').innerHTML = lh || '<div class="empty">本月还没有记录，记一笔吧</div>';
+    $('list').innerHTML = lh || emptyHTML('book', '本月还是空白的', '记一笔，开启本月账本吧');
     var s = storageUsed();
     $('storageInfo').textContent = '已用存储约 ' + kb(s.bytes) + '（含 ' + s.photos + ' 张照片），浏览器上限通常约 5 MB。';
   }
@@ -148,7 +178,7 @@
   function resetForm() {
     state.editId = null; state.photo = undefined;
     $('amount').value = ''; $('note').value = ''; $('err').textContent = '';
-    $('formTitle').textContent = '记一笔'; $('saveBtn').textContent = '保存'; show($('cancelEdit'), false);
+    $('formTitle').textContent = '✏️ 记一笔'; $('saveBtn').textContent = '保存'; show($('cancelEdit'), false);
     setPhotoPreview(null);
   }
   function find(arr, id) { for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return i; return -1; }
@@ -167,6 +197,7 @@
     save();
     state.y = +d.slice(0, 4); state.m = +d.slice(5, 7);
     resetForm(); render();
+    toast(old ? '✏️ 已更新' : '🎉 记好啦', true);
   });
   $('cancelEdit').addEventListener('click', resetForm);
   $('typeToggle').addEventListener('click', function (ev) { var t = ev.target.getAttribute('data-type'); if (t) setType(t); });
@@ -204,7 +235,7 @@
       state.editId = ed; state.cat = e.cat; setType(e.type);
       $('amount').value = fmt(e.cents); $('date').value = e.date; $('note').value = e.note || '';
       setPhotoPreview(e.photo ? getPhoto(e.id) : null);
-      $('formTitle').textContent = '编辑记录'; $('saveBtn').textContent = '保存修改'; show($('cancelEdit'), true);
+      $('formTitle').textContent = '✏️ 编辑记录'; $('saveBtn').textContent = '保存修改'; show($('cancelEdit'), true);
       window.scrollTo(0, $('formTitle').offsetTop - 10);
     }
   });
@@ -256,7 +287,7 @@
   $('dirToggle').addEventListener('click', function (ev) { var d = ev.target.getAttribute('data-dir'); if (d) { loan.dir = d; setToggle(this, 'data-dir', d); } });
   function resetLoan() {
     loan.editId = null; $('loanPerson').value = ''; $('loanAmount').value = ''; $('loanNote').value = ''; $('loanDate').value = today();
-    $('loanErr').textContent = ''; $('loanTitle').textContent = '新增借贷'; $('loanSave').textContent = '保存'; show($('loanCancel'), false);
+    $('loanErr').textContent = ''; $('loanTitle').textContent = '➕ 新增借贷'; $('loanSave').textContent = '保存'; show($('loanCancel'), false);
   }
   $('loanCancel').addEventListener('click', resetLoan);
   $('loanForm').addEventListener('submit', function (ev) {
@@ -269,6 +300,7 @@
     if (i >= 0) { var o = db.loans[i]; item.id = o.id; item.ts = o.ts; item.repaid = o.repaid; item.repaidDate = o.repaidDate; db.loans[i] = item; }
     else { item.id = uid(); item.ts = Date.now(); item.repaid = false; item.repaidDate = ''; db.loans.push(item); }
     save(); resetLoan(); renderLoans();
+    toast(i >= 0 ? '✏️ 借贷已更新' : '🤝 借贷已记下', true);
   });
   function renderLoans() {
     var owed = 0, owe = 0, per = {};
@@ -281,21 +313,21 @@
     var ph = '';
     Object.keys(per).sort(function (a, b) { return Math.abs(per[b]) - Math.abs(per[a]); }).forEach(function (p) {
       var v = per[p];
-      ph += '<div class="item"><div class="info"><div class="c">' + esc(p) + '</div></div><span class="amt ' + (v >= 0 ? 'inc' : 'exp') + '">' +
+      ph += '<div class="item"><div class="info"><div class="c"><span class="dot" aria-hidden="true">👤</span>' + esc(p) + '</div></div><span class="amt ' + (v >= 0 ? 'inc' : 'exp') + '">' +
         (v > 0 ? '欠我 ' + fmt(v) : v < 0 ? '我欠 ' + fmt(-v) : '已抵平') + '</span></div>';
     });
-    $('perPerson').innerHTML = ph || '<div class="empty">没有未还的借贷</div>';
+    $('perPerson').innerHTML = ph || emptyHTML('loan', '大家都两清啦', '暂时没有未还的借贷');
     var list = db.loans.slice().sort(function (a, b) { return (a.repaid - b.repaid) || (a.date < b.date ? 1 : a.date > b.date ? -1 : b.ts - a.ts); });
     var lh = '';
     list.forEach(function (l) {
       var out = l.dir === 'out';
-      lh += '<div class="item' + (l.repaid ? ' repaid' : '') + '"><div class="info"><div class="c">' + (out ? '借出给 ' : '借入自 ') + esc(l.person) + '</div>' +
+      lh += '<div class="item' + (l.repaid ? ' repaid' : '') + '"><div class="info"><div class="c"><span class="dot" aria-hidden="true">' + (out ? '📤' : '📥') + '</span>' + (out ? '借出给 ' : '借入自 ') + esc(l.person) + '</div>' +
         '<div class="n">' + esc(l.date) + (l.repaid ? ' · ' + esc(l.repaidDate) + ' 已还' : '') + (l.note ? ' · ' + esc(l.note) : '') + '</div></div>' +
         '<span class="amt ' + (out ? 'inc' : 'exp') + '">' + fmt(l.cents) + '</span>' +
         '<button class="status' + (l.repaid ? ' done' : '') + '" data-toggle="' + l.id + '">' + (l.repaid ? '已还' : '未还') + '</button>' +
         '<button class="icon" data-ledit="' + l.id + '">编辑</button><button class="icon" data-lrm="' + l.id + '">删除</button></div>';
     });
-    $('loanList').innerHTML = lh || '<div class="empty">还没有借贷记录</div>';
+    $('loanList').innerHTML = lh || emptyHTML('loan', '还没有借贷记录', '记一笔借出或借入吧');
   }
   $('loanList').addEventListener('click', function (ev) {
     var t = ev.target, tg = t.getAttribute('data-toggle'), ed = t.getAttribute('data-ledit'), rm = t.getAttribute('data-lrm'), i;
@@ -312,7 +344,7 @@
       i = find(db.loans, ed); if (i < 0) return; var o = db.loans[i];
       loan.editId = ed; loan.dir = o.dir; setToggle($('dirToggle'), 'data-dir', o.dir);
       $('loanPerson').value = o.person; $('loanAmount').value = fmt(o.cents); $('loanDate').value = o.date; $('loanNote').value = o.note || '';
-      $('loanTitle').textContent = '编辑借贷'; $('loanSave').textContent = '保存修改'; show($('loanCancel'), true);
+      $('loanTitle').textContent = '✏️ 编辑借贷'; $('loanSave').textContent = '保存修改'; show($('loanCancel'), true);
       window.scrollTo(0, $('loanTitle').offsetTop - 10);
     }
   });
@@ -524,6 +556,7 @@
     sel.forEach(function (it, k) { db.entries.push({ id: uid() + k, ts: t + k, type: it.type, cents: it.cents, cat: it.cat, date: it.date, note: it.note, photo: false }); });
     if (!save()) { db.entries.splice(db.entries.length - sel.length, sel.length); return; }
     alert('已导入 ' + sel.length + ' 条记录');
+    toast('📥 导入成功 · ' + sel.length + ' 条', true);
     imp.items = []; show($('previewCard'), false); show($('mapCard'), false); $('impMsg').textContent = '已导入 ' + sel.length + ' 条记录。';
     var last = sel[0].date; state.y = +last.slice(0, 4); state.m = +last.slice(5, 7);
   });
